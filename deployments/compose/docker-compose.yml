@@ -47,7 +47,7 @@ services:
 
   api-gateway:
     build:
-      context: .
+      context: ../..
       dockerfile: deployments/docker/Dockerfile.api
     ports:
       - "8080:8080"
@@ -64,7 +64,7 @@ services:
 
   worker:
     build:
-      context: .
+      context: ../..
       dockerfile: deployments/docker/Dockerfile.worker
     environment:
       DATABASE_URL: postgres://synt:synt@postgres:5432/synt?sslmode=disable
