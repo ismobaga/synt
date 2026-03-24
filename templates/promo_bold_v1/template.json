@@ -1,0 +1,33 @@
+{
+  "id": "promo_bold_v1",
+  "name": "Promo Bold",
+  "category": "promo",
+  "video": {
+    "aspect_ratio": "9:16",
+    "fps": 30,
+    "resolution": "1080x1920"
+  },
+  "captions": {
+    "mode": "word",
+    "position": "center",
+    "highlight_current_word": true,
+    "font_size": 64,
+    "font_weight": "extrabold",
+    "text_color": "#FFD700",
+    "background": "gradient_dark",
+    "animation": "slam_in"
+  },
+  "overlays": {
+    "hook_position": "top_center",
+    "cta_position": "bottom_center",
+    "safe_zone_percent": 12
+  },
+  "transitions": ["zoom_cut", "flash"],
+  "timing": {
+    "min_scene_sec": 2,
+    "max_scene_sec": 8
+  },
+  "max_scenes": 8,
+  "output_formats": ["mp4"],
+  "target_platforms": ["tiktok", "instagram_reels"]
+}

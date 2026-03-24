@@ -1,0 +1,33 @@
+{
+  "id": "minimal_clean_v1",
+  "name": "Minimal Clean",
+  "category": "minimal",
+  "video": {
+    "aspect_ratio": "9:16",
+    "fps": 30,
+    "resolution": "1080x1920"
+  },
+  "captions": {
+    "mode": "sentence",
+    "position": "bottom",
+    "highlight_current_word": false,
+    "font_size": 44,
+    "font_weight": "regular",
+    "text_color": "#FFFFFF",
+    "background": "none",
+    "animation": "fade_in"
+  },
+  "overlays": {
+    "hook_position": "center",
+    "cta_position": "bottom_center",
+    "safe_zone_percent": 8
+  },
+  "transitions": ["fade", "cut"],
+  "timing": {
+    "min_scene_sec": 4,
+    "max_scene_sec": 15
+  },
+  "max_scenes": 5,
+  "output_formats": ["mp4"],
+  "target_platforms": ["youtube_shorts", "instagram_reels"]
+}

@@ -1,0 +1,33 @@
+{
+  "id": "fast_caption_v1",
+  "name": "Fast Captions",
+  "category": "caption",
+  "video": {
+    "aspect_ratio": "9:16",
+    "fps": 30,
+    "resolution": "1080x1920"
+  },
+  "captions": {
+    "mode": "phrase",
+    "position": "lower_third",
+    "highlight_current_word": true,
+    "font_size": 52,
+    "font_weight": "bold",
+    "text_color": "#FFFFFF",
+    "background": "semi_transparent_dark",
+    "animation": "pop_in"
+  },
+  "overlays": {
+    "hook_position": "top_center",
+    "cta_position": "bottom_center",
+    "safe_zone_percent": 10
+  },
+  "transitions": ["quick_fade", "zoom_cut"],
+  "timing": {
+    "min_scene_sec": 3,
+    "max_scene_sec": 10
+  },
+  "max_scenes": 6,
+  "output_formats": ["mp4"],
+  "target_platforms": ["youtube_shorts", "tiktok", "instagram_reels"]
+}
