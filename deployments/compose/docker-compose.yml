@@ -82,7 +82,7 @@ services:
 
   web:
     build:
-      context: apps/web
+      context: ../../apps/web
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
