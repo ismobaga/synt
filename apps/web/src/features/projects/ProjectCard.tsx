@@ -77,12 +77,18 @@ function renderInlineValue(value?: string) {
   if (!value) return <span className="text-gray-400">—</span>
   if (value.startsWith('http://') || value.startsWith('https://')) {
     return (
-      <a href={value} target="_blank" rel="noreferrer" className="text-purple-700 hover:underline break-all">
+      <a href={value} target="_blank" rel="noreferrer" className="break-all text-purple-700 hover:underline">
         {value}
       </a>
     )
   }
   return <span className="break-all text-gray-700">{value}</span>
+}
+
+function getPublicMediaURL(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const candidate = (metadata as { public_url?: unknown }).public_url
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null
 }
 
 export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: ProjectCardProps) {
@@ -285,17 +291,19 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             {voiceTracks.length > 0 ? (
               <div className="space-y-2">
                 {voiceTracks.map((track) => {
-                  const playable = track.storage_path?.startsWith('http://') || track.storage_path?.startsWith('https://')
+                  const publicURL = getPublicMediaURL(track.metadata)
+                  const playableURL = publicURL ?? (track.storage_path?.startsWith('http://') || track.storage_path?.startsWith('https://') ? track.storage_path : null)
 
                   return (
                     <div key={track.id} className="rounded bg-white p-2 text-xs text-gray-700">
                       <div><strong>Voice:</strong> {track.voice_name || '—'}</div>
                       <div><strong>Language:</strong> {track.language || '—'}</div>
                       <div><strong>Duration:</strong> {formatDuration(track.duration_sec)}</div>
-                      <div><strong>Storage path:</strong> {renderInlineValue(track.storage_path)}</div>
-                      {playable && (
+                      <div><strong>Worker path:</strong> {renderInlineValue(track.storage_path)}</div>
+                      <div><strong>Public URL:</strong> {renderInlineValue(publicURL ?? undefined)}</div>
+                      {playableURL && (
                         <audio controls className="mt-2 w-full">
-                          <source src={track.storage_path} />
+                          <source src={playableURL} />
                         </audio>
                       )}
                       {Boolean(track.metadata) && (

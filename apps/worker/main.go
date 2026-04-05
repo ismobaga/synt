@@ -20,6 +20,7 @@ import (
 	"github.com/ismobaga/synt/internal/voice"
 	"github.com/ismobaga/synt/pkg/ffmpeg"
 	"github.com/ismobaga/synt/pkg/llm"
+	"github.com/ismobaga/synt/pkg/s3util"
 	"github.com/ismobaga/synt/pkg/tts"
 )
 
@@ -41,6 +42,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("configure tts client: %v", err)
 	}
+	storageClient, err := s3util.NewFromEnv()
+	if err != nil {
+		log.Fatalf("configure storage client: %v", err)
+	}
 	ffmpegRunner := ffmpeg.NewLocalRunner()
 
 	contentSvc := content.New(llmClient)
@@ -52,7 +57,7 @@ func main() {
 		log.Println("media: Pixabay provider not configured, using placeholders when needed")
 	}
 	mediaSvc := media.New(mediaProviders...)
-	voiceSvc := voice.New(ttsClient)
+	voiceSvc := voice.New(ttsClient, storageClient)
 	subtitleSvc := subtitle.New()
 	musicSvc := music.New(music.NewDefaultLibrary())
 	renderSvc := render.New(database, ffmpegRunner)

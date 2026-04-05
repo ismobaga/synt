@@ -194,16 +194,28 @@ func (c *MinIOClient) ensureBucket(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("check bucket %s: %w", c.bucket, err)
 	}
-	if exists {
-		return nil
+	if !exists {
+		if err := c.client.MakeBucket(ctx, c.bucket, minio.MakeBucketOptions{Region: c.region}); err != nil {
+			exists, checkErr := c.client.BucketExists(ctx, c.bucket)
+			if checkErr != nil || !exists {
+				return fmt.Errorf("create bucket %s: %w", c.bucket, err)
+			}
+		}
 	}
 
-	if err := c.client.MakeBucket(ctx, c.bucket, minio.MakeBucketOptions{Region: c.region}); err != nil {
-		exists, checkErr := c.client.BucketExists(ctx, c.bucket)
-		if checkErr == nil && exists {
-			return nil
-		}
-		return fmt.Errorf("create bucket %s: %w", c.bucket, err)
+	policy := fmt.Sprintf(`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {"AWS": ["*"]},
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::%s/*"]
+    }
+  ]
+}`, c.bucket)
+	if err := c.client.SetBucketPolicy(ctx, c.bucket, policy); err != nil {
+		return fmt.Errorf("set bucket policy %s: %w", c.bucket, err)
 	}
 	return nil
 }
