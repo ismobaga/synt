@@ -41,7 +41,14 @@ func main() {
 	ffmpegRunner := ffmpeg.NewLocalRunner()
 
 	contentSvc := content.New(llmClient)
-	mediaSvc := media.New()
+	var mediaProviders []media.Provider
+	if pixabayProvider := media.NewPixabayProviderFromEnv(); pixabayProvider != nil {
+		mediaProviders = append(mediaProviders, pixabayProvider)
+		log.Println("media: Pixabay provider enabled")
+	} else {
+		log.Println("media: Pixabay provider not configured, using placeholders when needed")
+	}
+	mediaSvc := media.New(mediaProviders...)
 	voiceSvc := voice.New(ttsClient)
 	subtitleSvc := subtitle.New()
 	musicSvc := music.New(music.NewDefaultLibrary())

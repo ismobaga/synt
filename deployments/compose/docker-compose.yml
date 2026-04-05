@@ -80,12 +80,19 @@ services:
     build:
       context: ../..
       dockerfile: deployments/docker/Dockerfile.worker
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://synt:synt@postgres:5432/synt?sslmode=disable
       REDIS_ADDR: redis:6379
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: ${MINIO_BUCKET:-synt-assets}
+      MINIO_USE_SSL: "false"
+      MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-http://localhost:9000}
+      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:0.8b}
