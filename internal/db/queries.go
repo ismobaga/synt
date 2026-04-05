@@ -8,6 +8,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// EnsureUser inserts a user if it does not already exist.
+func (db *DB) EnsureUser(ctx context.Context, u *User) error {
+	q := `INSERT INTO users (id, email, password_hash, plan, credits, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (id) DO NOTHING`
+	_, err := db.ExecContext(ctx, q, u.ID, u.Email, u.PasswordHash, u.Plan, u.Credits, u.CreatedAt)
+	return err
+}
+
 // CreateProject inserts a new project.
 func (db *DB) CreateProject(ctx context.Context, p *Project) error {
 	q := `INSERT INTO projects

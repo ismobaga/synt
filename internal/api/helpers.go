@@ -1,10 +1,31 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/ismobaga/synt/internal/db"
 )
+
+var defaultUserID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+func ensureDefaultUser(ctx context.Context, database *db.DB) (uuid.UUID, error) {
+	user := &db.User{
+		ID:        defaultUserID,
+		Email:     "demo@synt.local",
+		Plan:      "free",
+		Credits:   0,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := database.EnsureUser(ctx, user); err != nil {
+		return uuid.Nil, err
+	}
+	return user.ID, nil
+}
 
 // writeJSON encodes v as JSON and writes it to the response.
 func writeJSON(w http.ResponseWriter, status int, v any) {

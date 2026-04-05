@@ -61,9 +61,15 @@ func (h *BrandKitHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, err := ensureDefaultUser(r.Context(), h.db)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to initialize default user")
+		return
+	}
+
 	kit := &db.BrandKit{
 		ID:             uuid.New(),
-		UserID:         uuid.New(), // placeholder until auth
+		UserID:         userID,
 		Name:           req.Name,
 		LogoPath:       req.LogoPath,
 		PrimaryColor:   req.PrimaryColor,

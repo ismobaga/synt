@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -45,8 +46,12 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.TemplateID = "fast_caption_v1"
 	}
 
-	// Use a placeholder user ID until auth middleware is in place.
-	userID := uuid.New()
+	userID, err := ensureDefaultUser(r.Context(), h.db)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to initialize default user")
+		log.Println("failed to initialize default user:", err)
+		return
+	}
 
 	project := &db.Project{
 		ID:           uuid.New(),
@@ -64,7 +69,8 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.CreateProject(r.Context(), project); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create project")
+		writeError(w, http.StatusInternalServerError, "failed to create project: "+err.Error())
+		log.Println("failed to create project:", err)
 		return
 	}
 
