@@ -34,6 +34,7 @@ func NewFromEnv() (Client, error) {
 
 	outputDir := envOrDefault("TTS_OUTPUT_DIR", defaultTTSOutputDir)
 	kittenEndpoint := normalizeKittenEndpoint(os.Getenv("KITTEN_TTS_BASE_URL"))
+	edgeEndpoint := normalizeKittenEndpoint(firstNonEmpty(os.Getenv("EDGE_TTS_BASE_URL"), os.Getenv("KITTEN_TTS_BASE_URL")))
 	kittenClient := func() (Client, error) {
 		if kittenEndpoint == "" {
 			return nil, fmt.Errorf("KITTEN_TTS_BASE_URL is required when TTS_PROVIDER=kitten")
@@ -70,6 +71,17 @@ func NewFromEnv() (Client, error) {
 			outputDir,
 		), nil
 	}
+	edgeClient := func() (Client, error) {
+		if edgeEndpoint == "" {
+			return nil, fmt.Errorf("EDGE_TTS_BASE_URL is required when TTS_PROVIDER=edge-tts")
+		}
+		return NewEdgeClient(
+			edgeEndpoint,
+			os.Getenv("EDGE_TTS_API_KEY"),
+			os.Getenv("EDGE_TTS_VOICE"),
+			outputDir,
+		), nil
+	}
 
 	switch provider {
 	case "stub":
@@ -94,6 +106,8 @@ func NewFromEnv() (Client, error) {
 		return NewESpeakClient(cmd, outputDir), nil
 	case "kitten", "kitten-tts", "kitten-mini", "kitten-tts-mini":
 		return kittenClient()
+	case "edge", "edge-tts", "microsoft-edge":
+		return edgeClient()
 	case "chatterbox", "resemble-ai/chatterbox":
 		return chatterboxClient()
 	case "vibevoice", "vibevoice-realtime", "vibevoice-realtime-0.5b", "fishaudio/vibevoice-realtime-0.5b":

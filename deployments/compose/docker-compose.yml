@@ -120,6 +120,9 @@ services:
       KITTEN_TTS_MODEL: ${KITTEN_TTS_MODEL:-KittenML/kitten-tts-mini-0.8}
       KITTEN_TTS_API_KEY: ${KITTEN_TTS_API_KEY:-}
       KITTEN_TTS_VOICE: ${KITTEN_TTS_VOICE:-Jasper}
+      EDGE_TTS_BASE_URL: ${EDGE_TTS_BASE_URL:-http://tts-local:8000}
+      EDGE_TTS_API_KEY: ${EDGE_TTS_API_KEY:-}
+      EDGE_TTS_VOICE: ${EDGE_TTS_VOICE:-en-US-JennyNeural}
       CHATTERBOX_TTS_BASE_URL: ${CHATTERBOX_TTS_BASE_URL:-http://tts-local:8000/models}
       CHATTERBOX_TTS_MODEL: ${CHATTERBOX_TTS_MODEL:-resemble-ai/chatterbox}
       CHATTERBOX_TTS_API_KEY: ${CHATTERBOX_TTS_API_KEY:-}

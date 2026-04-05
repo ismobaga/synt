@@ -1,3 +1,4 @@
+import asyncio
 import io
 import os
 import subprocess
@@ -9,6 +10,14 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+
+try:
+    import edge_tts
+except Exception as exc:  # pragma: no cover - import best effort
+    edge_tts = None
+    EDGE_TTS_IMPORT_ERROR = str(exc)
+else:
+    EDGE_TTS_IMPORT_ERROR = ""
 
 app = FastAPI(title="synt-local-tts", version="0.1.0")
 
@@ -33,11 +42,24 @@ KITTEN_RUNTIME, KITTEN_IMPORT_ERROR = _load_kitten_runtime()
 KITTEN_MODELS: dict[str, Any] = {}
 KITTEN_VOICES = ["Bella", "Jasper", "Luna", "Bruno", "Rosie", "Hugo", "Kiki", "Leo"]
 
+EDGE_TTS_VOICES = [
+    "en-US-JennyNeural",
+    "en-US-GuyNeural",
+    "en-GB-SoniaNeural",
+    "fr-FR-DeniseNeural",
+    "de-DE-KatjaNeural",
+    "es-ES-ElviraNeural",
+    "pt-BR-FranciscaNeural",
+]
+
 MODEL_ALIASES = {
     "kitten": "KittenML/kitten-tts-mini-0.8",
     "kitten-mini": "KittenML/kitten-tts-mini-0.8",
     "kitten-tts-mini": "KittenML/kitten-tts-mini-0.8",
     "kittenml/kitten-tts-mini-0.8": "KittenML/kitten-tts-mini-0.8",
+    "edge": "microsoft/edge-tts",
+    "edge-tts": "microsoft/edge-tts",
+    "microsoft/edge-tts": "microsoft/edge-tts",
     "resemble-ai/chatterbox": "resemble-ai/chatterbox",
     "chatterbox": "resemble-ai/chatterbox",
     "fishaudio/vibevoice-realtime-0.5b": "fishaudio/VibeVoice-Realtime-0.5B",
@@ -47,6 +69,7 @@ MODEL_ALIASES = {
 }
 SUPPORTED_MODELS = [
     "KittenML/kitten-tts-mini-0.8",
+    "microsoft/edge-tts",
     "resemble-ai/chatterbox",
     "fishaudio/VibeVoice-Realtime-0.5B",
     "microsoft/speecht5_tts",
@@ -91,6 +114,22 @@ def select_kitten_voice(voice: str) -> str:
     return "Jasper"
 
 
+def select_edge_voice(language: str, voice: str) -> str:
+    chosen = first_non_empty(voice, os.getenv("EDGE_TTS_VOICE"))
+    if chosen:
+        return chosen
+    language = first_non_empty(language, "en").lower()
+    if language.startswith("es"):
+        return "es-ES-ElviraNeural"
+    if language.startswith("fr"):
+        return "fr-FR-DeniseNeural"
+    if language.startswith("de"):
+        return "de-DE-KatjaNeural"
+    if language.startswith("pt"):
+        return "pt-BR-FranciscaNeural"
+    return "en-US-JennyNeural"
+
+
 def select_voice(language: str, voice: str) -> str:
     if first_non_empty(voice):
         return voice.strip()
@@ -109,6 +148,12 @@ def select_voice(language: str, voice: str) -> str:
 def should_use_kitten_runtime(model_name: str) -> bool:
     backend = first_non_empty(os.getenv("LOCAL_TTS_BACKEND"), "auto").lower()
     return model_name.startswith("KittenML/") or backend in {"kitten", "kittentts"}
+
+
+def should_use_edge_runtime(model_name: str) -> bool:
+    backend = first_non_empty(os.getenv("LOCAL_TTS_BACKEND"), "auto").lower()
+    lowered = model_name.lower()
+    return lowered == "microsoft/edge-tts" or backend in {"edge", "edge-tts"}
 
 
 def get_kitten_model(model_name: str):
@@ -221,6 +266,46 @@ def synthesize_with_kitten(text: str, language: str, voice: str, speed: float, m
     return write_wave_bytes(audio, sample_rate=sample_rate)
 
 
+async def _save_edge_audio(text: str, voice_name: str, rate: str, output_path: str) -> None:
+    communicator = edge_tts.Communicate(text, voice_name, rate=rate)
+    await communicator.save(output_path)
+
+
+def edge_rate_value(speed: float) -> str:
+    percent = int(round((speed - 1.0) * 100))
+    return f"{percent:+d}%"
+
+
+def synthesize_with_edge_tts(text: str, language: str, voice: str, speed: float) -> bytes:
+    if edge_tts is None:
+        raise RuntimeError(f"edge-tts runtime is unavailable: {EDGE_TTS_IMPORT_ERROR or 'not installed'}")
+
+    output_dir = Path(os.getenv("LOCAL_TTS_OUTPUT_DIR", "/tmp/tts-local"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", dir=output_dir, delete=False) as mp3_tmp:
+        mp3_path = Path(mp3_tmp.name)
+    with tempfile.NamedTemporaryFile(suffix=".wav", dir=output_dir, delete=False) as wav_tmp:
+        wav_path = Path(wav_tmp.name)
+
+    try:
+        asyncio.run(_save_edge_audio(text, select_edge_voice(language, voice), edge_rate_value(speed), str(mp3_path)))
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(mp3_path), "-ac", "1", "-ar", "24000", str(wav_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        data = wav_path.read_bytes()
+    finally:
+        mp3_path.unlink(missing_ok=True)
+        wav_path.unlink(missing_ok=True)
+
+    if not data:
+        raise RuntimeError("edge-tts returned empty audio")
+    return data
+
+
 def synthesize_with_espeak(text: str, language: str, voice: str, speed: float) -> bytes:
     output_dir = Path(os.getenv("LOCAL_TTS_OUTPUT_DIR", "/tmp/tts-local"))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -265,7 +350,12 @@ def synthesize_to_wav(text: str, language: str, voice: str, speed: float, model_
     if speed <= 0:
         speed = 1.0
 
-    model_name = normalize_model_name(model_name or os.getenv("LOCAL_TTS_DEFAULT_MODEL", "KittenML/kitten-tts-mini"))
+    model_name = normalize_model_name(model_name or os.getenv("LOCAL_TTS_DEFAULT_MODEL", "KittenML/kitten-tts-mini-0.8"))
+    if should_use_edge_runtime(model_name):
+        try:
+            return synthesize_with_edge_tts(text, language, voice, speed), "edge-tts"
+        except Exception:
+            pass
     if should_use_kitten_runtime(model_name):
         try:
             return synthesize_with_kitten(text, language, voice, speed, model_name), "kitten"
@@ -282,6 +372,7 @@ def root() -> dict[str, Any]:
         "backend": os.getenv("LOCAL_TTS_BACKEND", "espeak"),
         "default_model": normalize_model_name(os.getenv("LOCAL_TTS_DEFAULT_MODEL", "KittenML/kitten-tts-mini-0.8")),
         "kitten_available_voices": KITTEN_VOICES,
+        "edge_available_voices": EDGE_TTS_VOICES,
         "supported_models": SUPPORTED_MODELS,
         "endpoints": ["/health", "/v1/audio/speech", "/models/{model:path}"],
     }
@@ -295,9 +386,12 @@ def health() -> dict[str, Any]:
         "command": os.getenv("LOCAL_TTS_COMMAND", "espeak"),
         "default_model": normalize_model_name(os.getenv("LOCAL_TTS_DEFAULT_MODEL", "KittenML/kitten-tts-mini-0.8")),
         "kitten_available_voices": KITTEN_VOICES,
+        "edge_available_voices": EDGE_TTS_VOICES,
         "supported_models": SUPPORTED_MODELS,
         "kitten_runtime_available": KITTEN_RUNTIME is not None,
         "kitten_runtime_error": KITTEN_IMPORT_ERROR,
+        "edge_runtime_available": edge_tts is not None,
+        "edge_runtime_error": EDGE_TTS_IMPORT_ERROR,
     }
 
 

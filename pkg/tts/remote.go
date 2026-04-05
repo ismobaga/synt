@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	defaultKittenModel     = "KittenML/kitten-tts-mini"
+	defaultKittenModel     = "KittenML/kitten-tts-mini-0.8"
 	defaultSpeechT5Model   = "microsoft/speecht5_tts"
 	defaultChatterboxModel = "resemble-ai/chatterbox"
 	defaultVibeVoiceModel  = "fishaudio/VibeVoice-Realtime-0.5B"
+	defaultEdgeTTSModel    = "microsoft/edge-tts"
 )
 
 // KittenClient synthesizes speech through a Kitten TTS compatible HTTP API.
@@ -26,10 +27,14 @@ type KittenClient struct {
 	endpoint     string
 	apiKey       string
 	model        string
+	providerName string
 	defaultVoice string
 	outputDir    string
 	httpClient   *http.Client
 }
+
+// EdgeClient synthesizes speech through an Edge TTS compatible HTTP API.
+type EdgeClient = KittenClient
 
 // SpeechT5Client synthesizes speech through Microsoft's open-source SpeechT5 model.
 type SpeechT5Client struct {
@@ -46,7 +51,23 @@ func NewKittenClient(endpoint, model, apiKey, defaultVoice, outputDir string) *K
 		endpoint:     normalizeKittenEndpoint(endpoint),
 		apiKey:       strings.TrimSpace(apiKey),
 		model:        firstNonEmpty(model, defaultKittenModel),
+		providerName: "kitten",
 		defaultVoice: strings.TrimSpace(defaultVoice),
+		outputDir:    firstNonEmpty(outputDir, defaultTTSOutputDir),
+		httpClient: &http.Client{
+			Timeout: 90 * time.Second,
+		},
+	}
+}
+
+// NewEdgeClient creates a new Edge TTS compatible client.
+func NewEdgeClient(endpoint, apiKey, defaultVoice, outputDir string) *EdgeClient {
+	return &KittenClient{
+		endpoint:     normalizeKittenEndpoint(endpoint),
+		apiKey:       strings.TrimSpace(apiKey),
+		model:        defaultEdgeTTSModel,
+		providerName: "edge-tts",
+		defaultVoice: firstNonEmpty(defaultVoice, "en-US-JennyNeural"),
 		outputDir:    firstNonEmpty(outputDir, defaultTTSOutputDir),
 		httpClient: &http.Client{
 			Timeout: 90 * time.Second,
@@ -81,7 +102,12 @@ func (c *KittenClient) Synthesize(ctx context.Context, req SynthesizeRequest) (*
 		req.SpeedX = 1
 	}
 
-	voiceName := firstNonEmpty(req.Voice, c.defaultVoice, selectRemoteVoice(req.Language), "expr-voice-2-f")
+	providerName := firstNonEmpty(c.providerName, "kitten")
+	fallbackVoice := "expr-voice-2-f"
+	if providerName == "edge-tts" {
+		fallbackVoice = selectEdgeVoice(req.Language)
+	}
+	voiceName := firstNonEmpty(req.Voice, c.defaultVoice, fallbackVoice)
 	outputPath, err := prepareOutputPath(c.outputDir, "wav")
 	if err != nil {
 		return nil, err
@@ -99,7 +125,7 @@ func (c *KittenClient) Synthesize(ctx context.Context, req SynthesizeRequest) (*
 		return nil, fmt.Errorf("kitten tts synthesize: %w", err)
 	}
 
-	meta, duration := buildMetadataForProvider("kitten", text, req.SpeedX)
+	meta, duration := buildMetadataForProvider(providerName, text, req.SpeedX)
 	meta = enrichMetadata(meta, map[string]any{
 		"model":      c.model,
 		"voice_name": voiceName,
@@ -362,6 +388,24 @@ func selectRemoteVoice(language string) string {
 		return "pt-BR"
 	default:
 		return ""
+	}
+}
+
+func selectEdgeVoice(language string) string {
+	language = strings.ToLower(strings.TrimSpace(language))
+	switch {
+	case strings.HasPrefix(language, "en"):
+		return "en-US-JennyNeural"
+	case strings.HasPrefix(language, "es"):
+		return "es-ES-ElviraNeural"
+	case strings.HasPrefix(language, "fr"):
+		return "fr-FR-DeniseNeural"
+	case strings.HasPrefix(language, "de"):
+		return "de-DE-KatjaNeural"
+	case strings.HasPrefix(language, "pt"):
+		return "pt-BR-FranciscaNeural"
+	default:
+		return "en-US-JennyNeural"
 	}
 }
 

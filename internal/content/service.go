@@ -89,18 +89,41 @@ Return ONLY valid JSON matching this schema:
       "duration_sec": number,
       "narration": "string",
       "caption": "string",
+	  "visual_type": "string",
       "visual_query": "string",
       "overlay_style": "hook|main|cta"
     }
   ]
 }
 
+
+Style guidelines:
+- Modern YouTube style. Simple, clear, confident language. Short punchy sentences. No academic or blog tone
+
 Rules:
 - Total scene durations must sum to %d seconds
 - Keep captions short (max 6 words)
 - Visual queries should be specific and searchable
 - First scene is the hook, last scene is the CTA
-- Generate 3-6 scenes appropriate for %d seconds
+- Create ONE scene for EVERY sentence, clause, or standalone idea.
+- Total scenes last for %d seconds, but do NOT explicitly say durations in the narration.
+- Do NOT group multiple sentences into one scene.
+- Do NOT summarize or compress content.
+
+VISUAL USAGE RULES:
+- Use host for hooks, key explanations, emotional emphasis, and transitions.
+- Use screen recording only when referencing studies, tools, data, or research.
+- Use text overlays for statistics, key claims, or strong statements.
+- Use graphics for processes, comparisons, biology, psychology, and mechanisms.
+- Use stock footage for emotional context, real-world relatability, and behavior examples.
+- Use AI-generated visuals for abstract concepts, internal states, evolution, chemistry, and metaphors.
+- Avoid repeating the same visual type more than 2 times consecutively.
+STORY FLOW RULES:
+- Maintain logical continuity between scenes.
+- Each scene should visually advance understanding.
+- Avoid generic visuals; every scene must directly represent the script line.
+
+
 `,
 		req.DurationSec, req.Platform, req.Topic,
 		req.Platform, req.Tone, req.Language,

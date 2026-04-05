@@ -214,7 +214,7 @@ go test ./...
 Replace stub clients in `pkg/llm` and `pkg/tts`:
 
 - **LLM**: OpenAI GPT-4, Anthropic Claude, Google Gemini
-- **TTS**: `espeak`, `kitten`, `chatterbox`, `vibevoice`, `speecht5`, ElevenLabs, Amazon Polly
+- **TTS**: `espeak`, `edge-tts`, `kitten`, `chatterbox`, `vibevoice`, `speecht5`, ElevenLabs, Amazon Polly
 - **Media**: Pexels API, Pixabay API, Unsplash API
 
 ### TTS Provider Options
@@ -248,7 +248,18 @@ This uses the local `tts-local` service and the OpenAI-style `POST /v1/audio/spe
 `KittenML/kitten-tts-mini-0.8` is fetched from Hugging Face by the KittenTTS runtime, so a valid token is required or the service will fall back to `espeak`.
 Available Kitten voices: `Bella`, `Jasper`, `Luna`, `Bruno`, `Rosie`, `Hugo`, `Kiki`, `Leo`.
 
-#### 2) `resemble-ai/chatterbox`
+#### 2) `edge-tts`
+
+```bash
+export TTS_PROVIDER=edge-tts
+export EDGE_TTS_BASE_URL=http://tts-local:8000
+export EDGE_TTS_VOICE=en-US-JennyNeural
+```
+
+This uses the local `tts-local` gateway with the Python `edge-tts` package for audio generation.
+> Note: `edge-tts` uses Microsoft Edge online voices, so it requires network access.
+
+#### 3) `resemble-ai/chatterbox`
 
 ```bash
 export TTS_PROVIDER=chatterbox
@@ -258,7 +269,7 @@ export CHATTERBOX_TTS_MODEL=resemble-ai/chatterbox
 
 This uses the local gateway through the Hugging Face-style `POST /models/{model}` endpoint.
 
-#### 3) `fishaudio/VibeVoice-Realtime-0.5B`
+#### 4) `fishaudio/VibeVoice-Realtime-0.5B`
 
 ```bash
 export TTS_PROVIDER=vibevoice

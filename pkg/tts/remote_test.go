@@ -57,6 +57,19 @@ func TestNewFromEnvVibeVoiceAlias(t *testing.T) {
 	}
 }
 
+func TestNewFromEnvEdgeTTS(t *testing.T) {
+	t.Setenv("TTS_PROVIDER", "edge-tts")
+	t.Setenv("EDGE_TTS_BASE_URL", "http://localhost:8010")
+
+	client, err := NewFromEnv()
+	if err != nil {
+		t.Fatalf("NewFromEnv returned error: %v", err)
+	}
+	if _, ok := client.(*EdgeClient); !ok {
+		t.Fatalf("expected *EdgeClient, got %T", client)
+	}
+}
+
 func TestDecodeAudioPayloadFromBase64JSON(t *testing.T) {
 	expected := []byte("RIFF-demo-wav")
 	body := []byte(`{"audio_base64":"` + base64.StdEncoding.EncodeToString(expected) + `"}`)
