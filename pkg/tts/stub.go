@@ -16,9 +16,14 @@ func NewStubClient() *StubClient {
 
 // Synthesize returns a stub audio result.
 func (c *StubClient) Synthesize(_ context.Context, req SynthesizeRequest) (*SynthesizeResult, error) {
+	meta, duration := buildMetadata(req.Text, req.SpeedX)
+	if duration == 0 {
+		duration = 28.5
+	}
 	return &SynthesizeResult{
 		StoragePath: fmt.Sprintf("audio/%s_voiceover.wav", req.Language),
-		DurationSec: 28.5,
+		DurationSec: duration,
 		VoiceName:   req.Voice,
+		Metadata:    meta,
 	}, nil
 }

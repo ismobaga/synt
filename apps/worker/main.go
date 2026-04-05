@@ -37,7 +37,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("configure llm client: %v", err)
 	}
-	ttsClient := tts.NewStubClient()
+	ttsClient, err := tts.NewFromEnv()
+	if err != nil {
+		log.Fatalf("configure tts client: %v", err)
+	}
 	ffmpegRunner := ffmpeg.NewLocalRunner()
 
 	contentSvc := content.New(llmClient)

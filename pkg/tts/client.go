@@ -16,6 +16,7 @@ type SynthesizeResult struct {
 	StoragePath string
 	DurationSec float64
 	VoiceName   string
+	Metadata    []byte
 }
 
 // Client is the interface for TTS providers.

@@ -284,14 +284,26 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           >
             {voiceTracks.length > 0 ? (
               <div className="space-y-2">
-                {voiceTracks.map((track) => (
-                  <div key={track.id} className="rounded bg-white p-2 text-xs text-gray-700">
-                    <div><strong>Voice:</strong> {track.voice_name || '—'}</div>
-                    <div><strong>Language:</strong> {track.language || '—'}</div>
-                    <div><strong>Duration:</strong> {formatDuration(track.duration_sec)}</div>
-                    <div><strong>Storage path:</strong> {renderInlineValue(track.storage_path)}</div>
-                  </div>
-                ))}
+                {voiceTracks.map((track) => {
+                  const playable = track.storage_path?.startsWith('http://') || track.storage_path?.startsWith('https://')
+
+                  return (
+                    <div key={track.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                      <div><strong>Voice:</strong> {track.voice_name || '—'}</div>
+                      <div><strong>Language:</strong> {track.language || '—'}</div>
+                      <div><strong>Duration:</strong> {formatDuration(track.duration_sec)}</div>
+                      <div><strong>Storage path:</strong> {renderInlineValue(track.storage_path)}</div>
+                      {playable && (
+                        <audio controls className="mt-2 w-full">
+                          <source src={track.storage_path} />
+                        </audio>
+                      )}
+                      {Boolean(track.metadata) && (
+                        <pre className="mt-2 max-h-40 overflow-auto rounded bg-slate-950 p-2 text-[11px] text-slate-100">{prettyValue(track.metadata)}</pre>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <p className="text-xs text-gray-500">Voiceover output will appear here.</p>

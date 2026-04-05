@@ -46,6 +46,7 @@ func (s *Service) Generate(ctx context.Context, projectID uuid.UUID, scriptJSON 
 		VoiceName:   result.VoiceName,
 		StoragePath: result.StoragePath,
 		DurationSec: result.DurationSec,
+		Metadata:    result.Metadata,
 		CreatedAt:   time.Now().UTC(),
 	}, nil
 }

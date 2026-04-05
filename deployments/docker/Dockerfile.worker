@@ -6,6 +6,6 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /worker ./apps/worker
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates tzdata ffmpeg
+RUN apk add --no-cache ca-certificates tzdata ffmpeg espeak
 COPY --from=builder /worker /worker
 ENTRYPOINT ["/worker"]

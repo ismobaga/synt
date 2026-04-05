@@ -93,6 +93,8 @@ services:
       MINIO_USE_SSL: "false"
       MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-http://localhost:9000}
       PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+      TTS_PROVIDER: ${TTS_PROVIDER:-espeak}
+      TTS_OUTPUT_DIR: ${TTS_OUTPUT_DIR:-/tmp/synt/tts}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:0.8b}
