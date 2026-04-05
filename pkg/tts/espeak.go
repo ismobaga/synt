@@ -32,18 +32,74 @@ func NewFromEnv() (Client, error) {
 		provider = defaultTTSProvider
 	}
 
+	outputDir := envOrDefault("TTS_OUTPUT_DIR", defaultTTSOutputDir)
+	kittenEndpoint := normalizeKittenEndpoint(os.Getenv("KITTEN_TTS_BASE_URL"))
+	kittenClient := func() (Client, error) {
+		if kittenEndpoint == "" {
+			return nil, fmt.Errorf("KITTEN_TTS_BASE_URL is required when TTS_PROVIDER=kitten")
+		}
+		return NewKittenClient(
+			kittenEndpoint,
+			envOrDefault("KITTEN_TTS_MODEL", defaultKittenModel),
+			os.Getenv("KITTEN_TTS_API_KEY"),
+			os.Getenv("KITTEN_TTS_VOICE"),
+			outputDir,
+		), nil
+	}
+	microsoftClient := func() (Client, error) {
+		return NewSpeechT5Client(
+			envOrDefault("MICROSOFT_TTS_BASE_URL", "https://api-inference.huggingface.co/models"),
+			envOrDefault("MICROSOFT_TTS_MODEL", defaultSpeechT5Model),
+			firstNonEmpty(os.Getenv("MICROSOFT_TTS_API_KEY"), os.Getenv("HUGGINGFACE_API_TOKEN")),
+			outputDir,
+		), nil
+	}
+	chatterboxClient := func() (Client, error) {
+		return NewSpeechT5Client(
+			firstNonEmpty(os.Getenv("CHATTERBOX_TTS_BASE_URL"), os.Getenv("MICROSOFT_TTS_BASE_URL"), "https://api-inference.huggingface.co/models"),
+			envOrDefault("CHATTERBOX_TTS_MODEL", defaultChatterboxModel),
+			firstNonEmpty(os.Getenv("CHATTERBOX_TTS_API_KEY"), os.Getenv("MICROSOFT_TTS_API_KEY"), os.Getenv("HUGGINGFACE_API_TOKEN")),
+			outputDir,
+		), nil
+	}
+	vibeVoiceClient := func() (Client, error) {
+		return NewSpeechT5Client(
+			firstNonEmpty(os.Getenv("VIBEVOICE_TTS_BASE_URL"), os.Getenv("MICROSOFT_TTS_BASE_URL"), "https://api-inference.huggingface.co/models"),
+			envOrDefault("VIBEVOICE_TTS_MODEL", defaultVibeVoiceModel),
+			firstNonEmpty(os.Getenv("VIBEVOICE_TTS_API_KEY"), os.Getenv("MICROSOFT_TTS_API_KEY"), os.Getenv("HUGGINGFACE_API_TOKEN")),
+			outputDir,
+		), nil
+	}
+
 	switch provider {
 	case "stub":
 		return NewStubClient(), nil
-	case "auto", "espeak", "espeak-ng", "local":
+	case "auto":
+		if kittenEndpoint != "" {
+			return kittenClient()
+		}
+		if strings.TrimSpace(os.Getenv("MICROSOFT_TTS_BASE_URL")) != "" || strings.TrimSpace(os.Getenv("HUGGINGFACE_API_TOKEN")) != "" || strings.TrimSpace(os.Getenv("MICROSOFT_TTS_API_KEY")) != "" {
+			return microsoftClient()
+		}
 		cmd, err := resolveESpeakCommand()
 		if err != nil {
-			if provider == "auto" {
-				return NewStubClient(), nil
-			}
+			return NewStubClient(), nil
+		}
+		return NewESpeakClient(cmd, outputDir), nil
+	case "espeak", "espeak-ng", "local":
+		cmd, err := resolveESpeakCommand()
+		if err != nil {
 			return nil, err
 		}
-		return NewESpeakClient(cmd, envOrDefault("TTS_OUTPUT_DIR", defaultTTSOutputDir)), nil
+		return NewESpeakClient(cmd, outputDir), nil
+	case "kitten", "kitten-tts", "kitten-mini", "kitten-tts-mini":
+		return kittenClient()
+	case "chatterbox", "resemble-ai/chatterbox":
+		return chatterboxClient()
+	case "vibevoice", "vibevoice-realtime", "vibevoice-realtime-0.5b", "fishaudio/vibevoice-realtime-0.5b":
+		return vibeVoiceClient()
+	case "microsoft", "speecht5", "speech-t5":
+		return microsoftClient()
 	default:
 		return nil, fmt.Errorf("unsupported TTS provider %q", provider)
 	}
@@ -93,7 +149,7 @@ func (c *ESpeakClient) Synthesize(ctx context.Context, req SynthesizeRequest) (*
 		return nil, fmt.Errorf("run %s: %w: %s", c.command, err, strings.TrimSpace(stderr.String()))
 	}
 
-	meta, duration := buildMetadata(text, req.SpeedX)
+	meta, duration := buildMetadataForProvider("espeak", text, req.SpeedX)
 	return &SynthesizeResult{
 		StoragePath: outputPath,
 		DurationSec: duration,
@@ -108,7 +164,7 @@ func resolveESpeakCommand() (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("espeak executable not found; install espeak-ng or use TTS_PROVIDER=stub")
+	return "", fmt.Errorf("espeak executable not found; install espeak, use TTS_PROVIDER=kitten or speecht5, or fall back to TTS_PROVIDER=stub")
 }
 
 func selectESpeakVoice(req SynthesizeRequest) string {
@@ -133,13 +189,18 @@ func selectESpeakVoice(req SynthesizeRequest) string {
 }
 
 func buildMetadata(text string, speedX float64) ([]byte, float64) {
+	return buildMetadataForProvider("tts", text, speedX)
+}
+
+func buildMetadataForProvider(provider, text string, speedX float64) ([]byte, float64) {
 	if speedX <= 0 {
 		speedX = 1
 	}
+	provider = firstNonEmpty(provider, "tts")
 	words := strings.Fields(strings.TrimSpace(text))
 	if len(words) == 0 {
 		payload, _ := json.Marshal(map[string]any{
-			"provider":   "espeak",
+			"provider":   provider,
 			"transcript": text,
 			"words":      []map[string]any{},
 		})
@@ -160,7 +221,7 @@ func buildMetadata(text string, speedX float64) ([]byte, float64) {
 	}
 
 	payload, _ := json.Marshal(map[string]any{
-		"provider":     "espeak",
+		"provider":     provider,
 		"transcript":   text,
 		"duration_sec": roundSeconds(duration),
 		"words":        entries,

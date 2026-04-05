@@ -16,7 +16,7 @@ func NewStubClient() *StubClient {
 
 // Synthesize returns a stub audio result.
 func (c *StubClient) Synthesize(_ context.Context, req SynthesizeRequest) (*SynthesizeResult, error) {
-	meta, duration := buildMetadata(req.Text, req.SpeedX)
+	meta, duration := buildMetadataForProvider("stub", req.Text, req.SpeedX)
 	if duration == 0 {
 		duration = 28.5
 	}

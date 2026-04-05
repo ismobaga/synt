@@ -76,6 +76,27 @@ services:
       redis:
         condition: service_healthy
 
+  tts-local:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile.tts
+    environment:
+      LOCAL_TTS_BACKEND: ${LOCAL_TTS_BACKEND:-espeak}
+      LOCAL_TTS_COMMAND: ${LOCAL_TTS_COMMAND:-espeak}
+      LOCAL_TTS_DEFAULT_VOICE: ${LOCAL_TTS_DEFAULT_VOICE:-Jasper}
+      LOCAL_TTS_DEFAULT_MODEL: ${LOCAL_TTS_DEFAULT_MODEL:-KittenML/kitten-tts-mini-0.8}
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
+      HF_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
+      HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
+      LOCAL_TTS_OUTPUT_DIR: /tmp/tts-local
+    ports:
+      - "8010:8000"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   worker:
     build:
       context: ../..
@@ -93,8 +114,22 @@ services:
       MINIO_USE_SSL: "false"
       MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-http://localhost:9000}
       PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
-      TTS_PROVIDER: ${TTS_PROVIDER:-espeak}
+      TTS_PROVIDER: ${TTS_PROVIDER:-auto}
       TTS_OUTPUT_DIR: ${TTS_OUTPUT_DIR:-/tmp/synt/tts}
+      KITTEN_TTS_BASE_URL: ${KITTEN_TTS_BASE_URL:-http://tts-local:8000}
+      KITTEN_TTS_MODEL: ${KITTEN_TTS_MODEL:-KittenML/kitten-tts-mini-0.8}
+      KITTEN_TTS_API_KEY: ${KITTEN_TTS_API_KEY:-}
+      KITTEN_TTS_VOICE: ${KITTEN_TTS_VOICE:-Jasper}
+      CHATTERBOX_TTS_BASE_URL: ${CHATTERBOX_TTS_BASE_URL:-http://tts-local:8000/models}
+      CHATTERBOX_TTS_MODEL: ${CHATTERBOX_TTS_MODEL:-resemble-ai/chatterbox}
+      CHATTERBOX_TTS_API_KEY: ${CHATTERBOX_TTS_API_KEY:-}
+      VIBEVOICE_TTS_BASE_URL: ${VIBEVOICE_TTS_BASE_URL:-http://tts-local:8000/models}
+      VIBEVOICE_TTS_MODEL: ${VIBEVOICE_TTS_MODEL:-fishaudio/VibeVoice-Realtime-0.5B}
+      VIBEVOICE_TTS_API_KEY: ${VIBEVOICE_TTS_API_KEY:-}
+      MICROSOFT_TTS_BASE_URL: ${MICROSOFT_TTS_BASE_URL:-http://tts-local:8000/models}
+      MICROSOFT_TTS_MODEL: ${MICROSOFT_TTS_MODEL:-microsoft/speecht5_tts}
+      MICROSOFT_TTS_API_KEY: ${MICROSOFT_TTS_API_KEY:-}
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:0.8b}
@@ -106,6 +141,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      tts-local:
         condition: service_healthy
 
   web:

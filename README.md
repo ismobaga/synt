@@ -214,5 +214,56 @@ go test ./...
 Replace stub clients in `pkg/llm` and `pkg/tts`:
 
 - **LLM**: OpenAI GPT-4, Anthropic Claude, Google Gemini
-- **TTS**: Google Cloud TTS, ElevenLabs, Amazon Polly
+- **TTS**: `espeak`, `kitten`, `chatterbox`, `vibevoice`, `speecht5`, ElevenLabs, Amazon Polly
 - **Media**: Pexels API, Pixabay API, Unsplash API
+
+### TTS Provider Options
+
+#### Local self-hosted TTS (recommended)
+
+The Docker stack now includes a local `tts-local` service on `http://localhost:8010`.
+By default, the worker uses `TTS_PROVIDER=auto`, which will prefer the local TTS endpoint and fall back to direct `espeak` if needed.
+The local image installs the KittenTTS wheel directly from:
+
+```bash
+pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
+```
+
+```bash
+docker compose -f deployments/compose/docker-compose.yml up -d tts-local worker
+curl http://localhost:8010/health
+```
+
+#### 1) `kitten-tts-mini-0.8` (default local model)
+
+```bash
+export TTS_PROVIDER=kitten
+export KITTEN_TTS_BASE_URL=http://tts-local:8000
+export KITTEN_TTS_MODEL=KittenML/kitten-tts-mini-0.8
+export KITTEN_TTS_VOICE=Jasper
+export HUGGINGFACE_API_TOKEN=hf_xxx
+```
+
+This uses the local `tts-local` service and the OpenAI-style `POST /v1/audio/speech` endpoint.
+`KittenML/kitten-tts-mini-0.8` is fetched from Hugging Face by the KittenTTS runtime, so a valid token is required or the service will fall back to `espeak`.
+Available Kitten voices: `Bella`, `Jasper`, `Luna`, `Bruno`, `Rosie`, `Hugo`, `Kiki`, `Leo`.
+
+#### 2) `resemble-ai/chatterbox`
+
+```bash
+export TTS_PROVIDER=chatterbox
+export CHATTERBOX_TTS_BASE_URL=http://tts-local:8000/models
+export CHATTERBOX_TTS_MODEL=resemble-ai/chatterbox
+```
+
+This uses the local gateway through the Hugging Face-style `POST /models/{model}` endpoint.
+
+#### 3) `fishaudio/VibeVoice-Realtime-0.5B`
+
+```bash
+export TTS_PROVIDER=vibevoice
+export VIBEVOICE_TTS_BASE_URL=http://tts-local:8000/models
+export VIBEVOICE_TTS_MODEL=fishaudio/VibeVoice-Realtime-0.5B
+```
+
+This also uses the same self-hosted local TTS gateway and accepts the requested model name directly.
