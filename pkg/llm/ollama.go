@@ -32,11 +32,13 @@ type ollamaGenerateRequest struct {
 	Prompt  string         `json:"prompt"`
 	Stream  bool           `json:"stream"`
 	Format  string         `json:"format,omitempty"`
+	Think   bool           `json:"think"`
 	Options map[string]any `json:"options,omitempty"`
 }
 
 type ollamaGenerateResponse struct {
 	Response string `json:"response"`
+	Thinking string `json:"thinking,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -87,6 +89,7 @@ func (c *OllamaClient) Complete(ctx context.Context, prompt string) (string, err
 		Prompt: prompt,
 		Stream: false,
 		Format: "json",
+		Think:  false,
 		Options: map[string]any{
 			"temperature": defaultTemperature,
 		},
@@ -123,11 +126,16 @@ func (c *OllamaClient) Complete(ctx context.Context, prompt string) (string, err
 	if out.Error != "" {
 		return "", fmt.Errorf("ollama error: %s", out.Error)
 	}
-	if strings.TrimSpace(out.Response) == "" {
+
+	responseText := strings.TrimSpace(out.Response)
+	if responseText == "" {
+		responseText = strings.TrimSpace(out.Thinking)
+	}
+	if responseText == "" {
 		return "", fmt.Errorf("ollama returned empty response")
 	}
 
-	return strings.TrimSpace(out.Response), nil
+	return responseText, nil
 }
 
 func getEnv(key, fallback string) string {

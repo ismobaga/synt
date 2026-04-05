@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,13 +38,19 @@ func (s *Service) Generate(ctx context.Context, projectID uuid.UUID, track *db.A
 
 	srtContent := buildSRT(captions)
 	contentJSON, _ := json.Marshal(captions)
+	storagePath := filepath.Join("/tmp/synt/subtitles", projectID.String(), "captions.srt")
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
+		return nil, fmt.Errorf("create subtitle dir: %w", err)
+	}
+	if err := os.WriteFile(storagePath, []byte(srtContent), 0o644); err != nil {
+		return nil, fmt.Errorf("write subtitle file: %w", err)
+	}
 
-	// In production: upload to storage. Here we store content inline.
 	sub := &db.Subtitle{
 		ID:          uuid.New(),
 		ProjectID:   projectID,
 		Format:      "srt",
-		StoragePath: fmt.Sprintf("projects/%s/subtitles/captions.srt", projectID),
+		StoragePath: storagePath,
 		Content:     contentJSON,
 		CreatedAt:   time.Now().UTC(),
 	}

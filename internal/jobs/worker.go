@@ -21,14 +21,14 @@ import (
 
 // Worker processes jobs from the queue.
 type Worker struct {
-	db          *db.DB
-	content     *content.Service
-	media       *media.Service
-	voice       *voice.Service
-	subtitle    *subtitle.Service
-	music       *music.Service
-	render      *render.Service
-	moderation  *moderation.Service
+	db           *db.DB
+	content      *content.Service
+	media        *media.Service
+	voice        *voice.Service
+	subtitle     *subtitle.Service
+	music        *music.Service
+	render       *render.Service
+	moderation   *moderation.Service
 	pollInterval time.Duration
 }
 
@@ -91,6 +91,7 @@ func (w *Worker) processBatch(ctx context.Context) {
 		if err := w.process(ctx, j); err != nil {
 			log.Printf("[worker] job %s (%s) failed: %v", j.ID, j.JobType, err)
 			_ = w.db.UpdateJobStatus(ctx, j.ID, db.JobStatusFailed, err.Error())
+			_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusFailed, stageForJobType(j.JobType), err.Error())
 		}
 	}
 }
@@ -138,35 +139,25 @@ func (w *Worker) process(ctx context.Context, j *db.Job) error {
 }
 
 func (w *Worker) handleProjectGenerate(ctx context.Context, j *db.Job) error {
-	// Full pipeline: script -> media -> voice -> subtitle -> music -> timeline -> render
-	steps := []string{
-		db.JobTypeScriptGenerate,
-		db.JobTypeScriptValidate,
-		db.JobTypeMediaSearch,
-		db.JobTypeMediaPrepare,
-		db.JobTypeVoiceGenerate,
-		db.JobTypeSubtitleGenerate,
-		db.JobTypeMusicSelect,
-		db.JobTypeTimelineBuild,
-		db.JobTypeRenderPreview,
-		db.JobTypeRenderFinal,
-		db.JobTypeRenderThumbnail,
-		db.JobTypeProjectFinalize,
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeScriptGenerate, j.Payload)
+}
+
+func (w *Worker) enqueueJob(ctx context.Context, projectID uuid.UUID, jobType string, payload []byte) error {
+	if payload == nil {
+		payload = []byte("{}")
 	}
-	for _, step := range steps {
-		stepJob := &db.Job{
-			ID:          uuid.New(),
-			ProjectID:   j.ProjectID,
-			JobType:     step,
-			Status:      db.JobStatusPending,
-			Payload:     j.Payload,
-			Attempts:    0,
-			MaxAttempts: 5,
-			CreatedAt:   time.Now().UTC(),
-		}
-		if err := w.db.CreateJob(ctx, stepJob); err != nil {
-			return fmt.Errorf("create step job %s: %w", step, err)
-		}
+	job := &db.Job{
+		ID:          uuid.New(),
+		ProjectID:   projectID,
+		JobType:     jobType,
+		Status:      db.JobStatusPending,
+		Payload:     payload,
+		Attempts:    0,
+		MaxAttempts: 5,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := w.db.CreateJob(ctx, job); err != nil {
+		return fmt.Errorf("create step job %s: %w", jobType, err)
 	}
 	return nil
 }
@@ -205,7 +196,10 @@ func (w *Worker) handleScriptGenerate(ctx context.Context, j *db.Job) error {
 		ContentJSON: contentJSON,
 		CreatedAt:   time.Now().UTC(),
 	}
-	return w.db.CreateScript(ctx, s)
+	if err := w.db.CreateScript(ctx, s); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeScriptValidate, j.Payload)
 }
 
 func (w *Worker) handleScriptValidate(ctx context.Context, j *db.Job) error {
@@ -214,7 +208,10 @@ func (w *Worker) handleScriptValidate(ctx context.Context, j *db.Job) error {
 	if err != nil {
 		return err
 	}
-	return w.moderation.ValidateScript(ctx, script.ContentJSON)
+	if err := w.moderation.ValidateScript(ctx, script.ContentJSON); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeMediaSearch, j.Payload)
 }
 
 func (w *Worker) handleMediaSearch(ctx context.Context, j *db.Job) error {
@@ -232,7 +229,7 @@ func (w *Worker) handleMediaSearch(ctx context.Context, j *db.Job) error {
 			return err
 		}
 	}
-	return nil
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeMediaPrepare, j.Payload)
 }
 
 func (w *Worker) handleMediaPrepare(ctx context.Context, j *db.Job) error {
@@ -241,7 +238,10 @@ func (w *Worker) handleMediaPrepare(ctx context.Context, j *db.Job) error {
 	if err != nil {
 		return err
 	}
-	return w.media.PrepareAssets(ctx, assets)
+	if err := w.media.PrepareAssets(ctx, assets); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeVoiceGenerate, j.Payload)
 }
 
 func (w *Worker) handleVoiceGenerate(ctx context.Context, j *db.Job) error {
@@ -254,7 +254,10 @@ func (w *Worker) handleVoiceGenerate(ctx context.Context, j *db.Job) error {
 	if err != nil {
 		return err
 	}
-	return w.db.CreateAudioTrack(ctx, track)
+	if err := w.db.CreateAudioTrack(ctx, track); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeSubtitleGenerate, j.Payload)
 }
 
 func (w *Worker) handleSubtitleGenerate(ctx context.Context, j *db.Job) error {
@@ -270,7 +273,10 @@ func (w *Worker) handleSubtitleGenerate(ctx context.Context, j *db.Job) error {
 	if err != nil {
 		return err
 	}
-	return w.db.CreateSubtitle(ctx, sub)
+	if err := w.db.CreateSubtitle(ctx, sub); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeMusicSelect, j.Payload)
 }
 
 func (w *Worker) handleMusicSelect(ctx context.Context, j *db.Job) error {
@@ -283,29 +289,75 @@ func (w *Worker) handleMusicSelect(ctx context.Context, j *db.Job) error {
 	if err != nil {
 		return err
 	}
-	return w.db.CreateAudioTrack(ctx, track)
+	if err := w.db.CreateAudioTrack(ctx, track); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeTimelineBuild, j.Payload)
 }
 
 func (w *Worker) handleTimelineBuild(ctx context.Context, j *db.Job) error {
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageTimelineBuild, "")
-	return w.render.BuildTimeline(ctx, j.ProjectID)
+	if err := w.render.BuildTimeline(ctx, j.ProjectID); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeRenderPreview, j.Payload)
 }
 
 func (w *Worker) handleRenderPreview(ctx context.Context, j *db.Job) error {
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageRenderPreview, "")
-	return w.render.RenderPreview(ctx, j.ProjectID)
+	if err := w.render.RenderPreview(ctx, j.ProjectID); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeRenderFinal, j.Payload)
 }
 
 func (w *Worker) handleRenderFinal(ctx context.Context, j *db.Job) error {
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageRenderFinal, "")
-	return w.render.RenderFinal(ctx, j.ProjectID)
+	if err := w.render.RenderFinal(ctx, j.ProjectID); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeRenderThumbnail, j.Payload)
 }
 
 func (w *Worker) handleRenderThumbnail(ctx context.Context, j *db.Job) error {
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageRenderThumbnail, "")
-	return w.render.ExtractThumbnail(ctx, j.ProjectID)
+	if err := w.render.ExtractThumbnail(ctx, j.ProjectID); err != nil {
+		return err
+	}
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeProjectFinalize, j.Payload)
 }
 
 func (w *Worker) handleProjectFinalize(ctx context.Context, j *db.Job) error {
 	return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageFinalize, "")
+}
+
+func stageForJobType(jobType string) string {
+	switch jobType {
+	case db.JobTypeScriptGenerate:
+		return db.StageScriptGeneration
+	case db.JobTypeScriptValidate:
+		return db.StageScriptValidation
+	case db.JobTypeMediaSearch:
+		return db.StageMediaSearch
+	case db.JobTypeMediaPrepare:
+		return db.StageMediaPrepare
+	case db.JobTypeVoiceGenerate:
+		return db.StageVoiceGeneration
+	case db.JobTypeSubtitleGenerate:
+		return db.StageSubtitleGeneration
+	case db.JobTypeMusicSelect:
+		return db.StageMusicSelection
+	case db.JobTypeTimelineBuild:
+		return db.StageTimelineBuild
+	case db.JobTypeRenderPreview:
+		return db.StageRenderPreview
+	case db.JobTypeRenderFinal:
+		return db.StageRenderFinal
+	case db.JobTypeRenderThumbnail:
+		return db.StageRenderThumbnail
+	case db.JobTypeProjectFinalize:
+		return db.StageFinalize
+	default:
+		return db.StageCreated
+	}
 }

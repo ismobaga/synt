@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -95,7 +98,10 @@ func (s *Service) ExtractThumbnail(ctx context.Context, projectID uuid.UUID) err
 		return fmt.Errorf("no final render found for project %s", projectID)
 	}
 
-	thumbPath := fmt.Sprintf("projects/%s/thumbnail.jpg", projectID)
+	thumbPath := filepath.Join("/tmp/synt/renders", projectID.String(), "thumbnail.jpg")
+	if err := os.MkdirAll(filepath.Dir(thumbPath), 0o755); err != nil {
+		return fmt.Errorf("create thumbnail dir: %w", err)
+	}
 	cmd := ffmpeg.Command{
 		Args: []string{
 			"-i", finalRender.StoragePath,
@@ -112,7 +118,10 @@ func (s *Service) ExtractThumbnail(ctx context.Context, projectID uuid.UUID) err
 }
 
 func (s *Service) renderAt(ctx context.Context, projectID uuid.UUID, kind, resolution string, fps int) error {
-	outputPath := fmt.Sprintf("projects/%s/%s.mp4", projectID, kind)
+	outputPath := filepath.Join("/tmp/synt/renders", projectID.String(), fmt.Sprintf("%s.mp4", kind))
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("create render dir: %w", err)
+	}
 
 	render := &db.Render{
 		ID:         uuid.New(),
@@ -151,48 +160,85 @@ func (s *Service) renderAt(ctx context.Context, projectID uuid.UUID, kind, resol
 
 func buildFFmpegCommand(assets []*db.Asset, tracks []*db.AudioTrack, subtitles []*db.Subtitle, output, resolution string, fps int) ffmpeg.Command {
 	args := []string{"-y"}
+	w, h := parseResolution(resolution)
+	videoInputs := 0
 
-	// Add video inputs
 	for _, a := range assets {
-		if a.Type == "video" && a.StoragePath != "" {
-			args = append(args, "-i", a.StoragePath)
+		inputPath := firstUsablePath(a.StoragePath, a.URL)
+		if inputPath == "" {
+			continue
+		}
+		switch a.Type {
+		case "video":
+			args = append(args, "-i", inputPath)
+			videoInputs++
+		case "image":
+			args = append(args, "-loop", "1", "-t", "30", "-i", inputPath)
+			videoInputs++
 		}
 	}
 
-	// Add voiceover
+	if videoInputs == 0 {
+		args = append(args, "-f", "lavfi", "-i", fmt.Sprintf("color=c=black:s=%d:%d:d=30", w, h))
+	}
+
 	for _, t := range tracks {
 		if t.Kind == "voiceover" {
-			args = append(args, "-i", t.StoragePath)
+			if inputPath := firstUsablePath(t.StoragePath); inputPath != "" {
+				args = append(args, "-i", inputPath)
+			}
+			break
 		}
 	}
 
-	// Add music
 	for _, t := range tracks {
 		if t.Kind == "music" {
-			args = append(args, "-i", t.StoragePath)
+			if inputPath := firstUsablePath(t.StoragePath); inputPath != "" {
+				args = append(args, "-i", inputPath)
+			}
+			break
 		}
 	}
 
-	// Output settings
-	w, h := parseResolution(resolution)
+	videoFilter := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", w, h, w, h)
+	if len(subtitles) > 0 && firstUsablePath(subtitles[0].StoragePath) != "" {
+		videoFilter += fmt.Sprintf(",subtitles=%s", escapeFFmpegPath(subtitles[0].StoragePath))
+	}
+
 	args = append(args,
-		"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2", w, h, w, h),
+		"-vf", videoFilter,
 		"-r", fmt.Sprintf("%d", fps),
 		"-c:v", "libx264",
 		"-preset", "medium",
 		"-crf", "23",
 		"-c:a", "aac",
 		"-b:a", "128k",
+		"-shortest",
+		output,
 	)
 
-	// Burn subtitles
-	if len(subtitles) > 0 && subtitles[0].StoragePath != "" {
-		args = append(args, "-vf", fmt.Sprintf("subtitles=%s", subtitles[0].StoragePath))
-	}
-
-	args = append(args, output)
-
 	return ffmpeg.Command{Args: args}
+}
+
+func firstUsablePath(paths ...string) string {
+	for _, path := range paths {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+			return trimmed
+		}
+		if _, err := os.Stat(trimmed); err == nil {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func escapeFFmpegPath(path string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `:`, `\:`, `'`, `\\'`)
+	return replacer.Replace(path)
 }
 
 func parseResolution(res string) (int, int) {
@@ -227,9 +273,9 @@ func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTr
 	var cursor float64
 	for i, scene := range sc.Scenes {
 		ms := &api.ManifestScene{
-			Index:    scene.Index,
-			StartSec: cursor,
-			EndSec:   cursor + scene.DurationSec,
+			Index:         scene.Index,
+			StartSec:      cursor,
+			EndSec:        cursor + scene.DurationSec,
 			TransitionOut: "quick_fade",
 		}
 		// Attach media

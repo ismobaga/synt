@@ -80,6 +80,8 @@ func (s *Service) searchForScene(ctx context.Context, projectID uuid.UUID, scene
 			Source:      "stock",
 			Provider:    best.Provider,
 			URL:         best.URL,
+			StoragePath: best.URL,
+			MimeType:    mimeTypeForAsset(best.Type),
 			Width:       best.Width,
 			Height:      best.Height,
 			DurationSec: best.DurationSec,
@@ -132,9 +134,28 @@ func (s *Service) PrepareAssets(ctx context.Context, assets []*db.Asset) error {
 
 func (s *Service) prepareAsset(_ context.Context, a *db.Asset) error {
 	// In production: download, transcode, reframe to 9:16, generate proxy.
-	// Here we validate the asset has required fields.
+	// Here we keep the direct media URL as the render input when no local file exists yet.
 	if a.Type == "" {
 		return fmt.Errorf("asset %s missing type", a.ID)
 	}
+	if a.StoragePath == "" {
+		a.StoragePath = a.URL
+	}
+	if a.MimeType == "" {
+		a.MimeType = mimeTypeForAsset(a.Type)
+	}
 	return nil
+}
+
+func mimeTypeForAsset(assetType string) string {
+	switch assetType {
+	case "video":
+		return "video/mp4"
+	case "image":
+		return "image/jpeg"
+	case "manifest":
+		return "application/json"
+	default:
+		return "application/octet-stream"
+	}
 }

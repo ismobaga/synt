@@ -44,8 +44,28 @@ func TestOllamaClientComplete(t *testing.T) {
 	if got.Stream {
 		t.Fatal("expected streaming to be disabled")
 	}
+	if got.Think {
+		t.Fatal("expected think mode to be disabled")
+	}
 	if !strings.Contains(got.Prompt, "short JSON script") {
 		t.Fatalf("prompt was not forwarded correctly: %q", got.Prompt)
+	}
+}
+
+func TestOllamaClientCompleteFallsBackToThinking(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":"","thinking":"{\"title\":\"FromThinking\"}"}`))
+	}))
+	defer server.Close()
+
+	client := NewOllamaClient(server.URL, "qwen3.5:0.8b")
+	result, err := client.Complete(context.Background(), "write a short JSON script")
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if result != `{"title":"FromThinking"}` {
+		t.Fatalf("unexpected result: %s", result)
 	}
 }
 
