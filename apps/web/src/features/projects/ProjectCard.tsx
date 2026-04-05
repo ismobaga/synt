@@ -113,6 +113,32 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
 
   const mediaAssets = useMemo(() => assets.filter((asset) => asset.type !== 'manifest'), [assets])
   const manifestAsset = useMemo(() => assets.find((asset) => asset.type === 'manifest'), [assets])
+  const displayRenders = useMemo(() => {
+    const rank = (status: string) => {
+      switch (status) {
+        case 'done':
+          return 3
+        case 'processing':
+          return 2
+        case 'queued':
+          return 1
+        default:
+          return 0
+      }
+    }
+
+    const byKey = new Map<string, (typeof renders)[number]>()
+    for (const render of renders) {
+      const key = `${render.kind}:${render.resolution}`
+      const existing = byKey.get(key)
+      if (!existing || rank(render.status) > rank(existing.status)) {
+        byKey.set(key, render)
+      }
+    }
+
+    const order = ['preview', 'final']
+    return Array.from(byKey.values()).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+  }, [renders])
   const voiceTracks = audio.filter((track) => track.kind === 'voiceover')
   const musicTracks = audio.filter((track) => track.kind === 'music')
 
@@ -378,24 +404,41 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           <OutputSection
             title="9. Render outputs"
             subtitle="Preview/final video render status and output files"
-            ready={renders.length > 0 || hasReachedStage(currentStage, 'render_preview', currentStatus)}
+            ready={displayRenders.length > 0 || hasReachedStage(currentStage, 'render_preview', currentStatus)}
           >
-            {renders.length > 0 ? (
+            {displayRenders.length > 0 ? (
               <div className="space-y-2">
-                {renders.map((render) => (
-                  <div key={render.id} className="rounded bg-white p-2 text-xs text-gray-700">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">{render.kind}</span>
-                      <span>{render.resolution}</span>
-                      <span>{render.fps} fps</span>
-                      <span className={`rounded-full px-2 py-0.5 ${render.status === 'done' ? 'bg-green-100 text-green-700' : render.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                        {render.status}
-                      </span>
+                {displayRenders.map((render) => {
+                  const videoURL = render.storage_path?.startsWith('http://') || render.storage_path?.startsWith('https://')
+                    ? render.storage_path
+                    : null
+                  const thumbnailURL = render.thumbnail_path?.startsWith('http://') || render.thumbnail_path?.startsWith('https://')
+                    ? render.thumbnail_path
+                    : null
+
+                  return (
+                    <div key={render.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">{render.kind}</span>
+                        <span>{render.resolution}</span>
+                        <span>{render.fps} fps</span>
+                        <span className={`rounded-full px-2 py-0.5 ${render.status === 'done' ? 'bg-green-100 text-green-700' : render.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                          {render.status}
+                        </span>
+                      </div>
+                      <div><strong>Video path:</strong> {renderInlineValue(render.storage_path)}</div>
+                      <div><strong>Thumbnail:</strong> {renderInlineValue(render.thumbnail_path)}</div>
+                      {videoURL && render.status === 'done' && (
+                        <video controls className="mt-2 w-full rounded border border-gray-200 bg-black">
+                          <source src={videoURL} />
+                        </video>
+                      )}
+                      {thumbnailURL && (
+                        <img src={thumbnailURL} alt={`${render.kind} thumbnail`} className="mt-2 max-h-40 rounded border border-gray-200" />
+                      )}
                     </div>
-                    <div><strong>Video path:</strong> {renderInlineValue(render.storage_path)}</div>
-                    <div><strong>Thumbnail:</strong> {renderInlineValue(render.thumbnail_path)}</div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               <p className="text-xs text-gray-500">Preview and final render outputs will show here.</p>

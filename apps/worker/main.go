@@ -60,7 +60,7 @@ func main() {
 	voiceSvc := voice.New(ttsClient, storageClient)
 	subtitleSvc := subtitle.New()
 	musicSvc := music.New(music.NewDefaultLibrary())
-	renderSvc := render.New(database, ffmpegRunner)
+	renderSvc := render.New(database, ffmpegRunner, storageClient)
 	moderationSvc := moderation.New()
 
 	worker := jobs.New(
