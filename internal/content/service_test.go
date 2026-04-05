@@ -9,7 +9,11 @@ import (
 )
 
 func TestGenerateScript(t *testing.T) {
-	svc := content.New(llm.NewStubClient())
+	llmClient, err := llm.NewFromEnv()
+	if err != nil {
+		t.Fatalf("configure llm client: %v", err)
+	}
+	svc := content.New(llmClient)
 	req := content.GenerateRequest{
 		Topic:       "5 AI tools for small businesses",
 		Platform:    "youtube_shorts",
@@ -44,7 +48,11 @@ func TestGenerateScript(t *testing.T) {
 }
 
 func TestGenerateSetsLanguage(t *testing.T) {
-	svc := content.New(llm.NewStubClient())
+	llmClient, err := llm.NewFromEnv()
+	if err != nil {
+		t.Fatalf("configure llm client: %v", err)
+	}
+	svc := content.New(llmClient)
 	req := content.GenerateRequest{
 		Topic:       "tech tips",
 		Platform:    "tiktok",

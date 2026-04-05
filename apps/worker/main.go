@@ -32,9 +32,11 @@ func main() {
 	}
 	defer database.Close()
 
-	// Wire up services using stub implementations.
-	// Replace with real providers in production.
-	llmClient := llm.NewStubClient()
+	// Wire up services using configurable provider implementations.
+	llmClient, err := llm.NewFromEnv()
+	if err != nil {
+		log.Fatalf("configure llm client: %v", err)
+	}
 	ttsClient := tts.NewStubClient()
 	ffmpegRunner := ffmpeg.NewLocalRunner()
 
