@@ -37,15 +37,14 @@ interface OutputSectionProps {
 
 function OutputSection({ title, subtitle, ready, children }: OutputSectionProps) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-gray-50/70 p-3">
+    <section className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-semibold text-gray-900">{title}</h4>
-          <p className="text-xs text-gray-500">{subtitle}</p>
+          <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+          <p className="text-xs text-slate-500">{subtitle}</p>
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'
-            }`}
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
         >
           {ready ? 'Ready' : 'Waiting'}
         </span>
@@ -67,6 +66,19 @@ function formatDuration(value?: number) {
   return `${Math.round(value * 10) / 10}s`
 }
 
+function formatRelativeTime(value?: string) {
+  if (!value) return 'unknown'
+
+  const timestamp = new Date(value).getTime()
+  if (Number.isNaN(timestamp)) return 'unknown'
+
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+  if (diffSeconds < 60) return 'just now'
+  if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`
+  if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`
+  return `${Math.floor(diffSeconds / 86400)}d ago`
+}
+
 function prettyValue(value: unknown) {
   if (value == null || value === '') return 'No output yet.'
   if (typeof value === 'string') return value
@@ -74,15 +86,15 @@ function prettyValue(value: unknown) {
 }
 
 function renderInlineValue(value?: string) {
-  if (!value) return <span className="text-gray-400">—</span>
+  if (!value) return <span className="text-slate-400">—</span>
   if (value.startsWith('http://') || value.startsWith('https://')) {
     return (
-      <a href={value} target="_blank" rel="noreferrer" className="break-all text-purple-700 hover:underline">
+      <a href={value} target="_blank" rel="noreferrer" className="break-all text-violet-700 hover:underline">
         {value}
       </a>
     )
   }
-  return <span className="break-all text-gray-700">{value}</span>
+  return <span className="break-all text-slate-700">{value}</span>
 }
 
 function getPublicMediaURL(metadata: unknown): string | null {
@@ -91,8 +103,20 @@ function getPublicMediaURL(metadata: unknown): string | null {
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : null
 }
 
+function getMetadataValue(metadata: unknown, key: string): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const candidate = (metadata as Record<string, unknown>)[key]
+  if (candidate == null) return null
+  return typeof candidate === 'string' ? candidate : String(candidate)
+}
+
+function getHttpURL(value?: string | null) {
+  if (!value) return null
+  return value.startsWith('http://') || value.startsWith('https://') ? value : null
+}
+
 export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: ProjectCardProps) {
-  const [showOutputs, setShowOutputs] = useState(false)
+  const [showOutputs, setShowOutputs] = useState(project.status === 'processing' || project.status === 'failed')
   const { status, stage, error: statusError } = useProjectStatus(
     project.status === 'processing' || project.status === 'queued' ? project.id : null
   )
@@ -104,11 +128,12 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
   const isActive = currentStatus === 'queued' || currentStatus === 'processing'
   const isDone = currentStatus === 'done'
   const isFailed = currentStatus === 'failed'
+  const shouldLoadOutputs = showOutputs || isDone || isFailed
 
   const { script, assets, audio, subtitles, renders, loading, error, refresh } = useProjectOutputs(
     project.id,
-    showOutputs,
-    showOutputs && isActive
+    shouldLoadOutputs,
+    shouldLoadOutputs && isActive
   )
 
   const mediaAssets = useMemo(() => assets.filter((asset) => asset.type !== 'manifest'), [assets])
@@ -137,10 +162,33 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
     }
 
     const order = ['preview', 'final']
-    return Array.from(byKey.values()).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+    return Array.from(byKey.values()).sort((a, b) => {
+      const aIndex = order.includes(a.kind) ? order.indexOf(a.kind) : order.length
+      const bIndex = order.includes(b.kind) ? order.indexOf(b.kind) : order.length
+      return aIndex - bIndex
+    })
   }, [renders])
+
   const voiceTracks = audio.filter((track) => track.kind === 'voiceover')
   const musicTracks = audio.filter((track) => track.kind === 'music')
+  const latestFinalRender = useMemo(
+    () => displayRenders.find((render) => render.kind === 'final' && render.status === 'done') ?? displayRenders.find((render) => render.status === 'done') ?? null,
+    [displayRenders]
+  )
+  const latestPreviewRender = useMemo(
+    () => displayRenders.find((render) => render.kind === 'preview' && render.status === 'done') ?? null,
+    [displayRenders]
+  )
+  const latestVoiceTrack = voiceTracks[0] ?? null
+  const finalVideoURL = latestFinalRender
+    ? getHttpURL(latestFinalRender.storage_path) ?? getPublicMediaURL(latestFinalRender.metadata)
+    : null
+  const previewVideoURL = latestPreviewRender
+    ? getHttpURL(latestPreviewRender.storage_path) ?? getPublicMediaURL(latestPreviewRender.metadata)
+    : null
+  const latestVoiceURL = latestVoiceTrack
+    ? getPublicMediaURL(latestVoiceTrack.metadata) ?? getHttpURL(latestVoiceTrack.storage_path)
+    : null
 
   const platformLabels: Record<string, string> = {
     youtube_shorts: '▶ YouTube Shorts',
@@ -149,23 +197,62 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <div className="mb-3 flex items-start justify-between gap-2">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold leading-snug text-gray-900">{project.topic}</h3>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <h3 className="text-sm font-semibold leading-snug text-slate-900">{project.topic}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">
             {platformLabels[project.platform] ?? project.platform} · {project.duration_sec}s
           </p>
         </div>
         <StatusBadge status={currentStatus} />
       </div>
 
+      <div className="mb-3 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+        <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{project.language.toUpperCase()}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{project.tone}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{project.template_id}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1">Updated {formatRelativeTime(project.updated_at)}</span>
+        {isActive && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Live refresh enabled</span>}
+      </div>
+
       <div className="mb-3">
         <PipelineProgress currentStage={currentStage} status={currentStatus} />
       </div>
 
-      {currentError && (
-        <p className="mb-3 rounded bg-red-50 p-2 text-xs text-red-600">{currentError}</p>
+      {currentError && <p className="mb-3 rounded-lg bg-red-50 p-2 text-xs text-red-600">{currentError}</p>}
+
+      {shouldLoadOutputs && (latestFinalRender || latestPreviewRender || latestVoiceTrack || mediaAssets[0]) && (
+        <div className="mb-3 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Render</p>
+            <p className="mt-1 font-semibold text-slate-900">
+              {latestFinalRender ? 'Final video ready' : latestPreviewRender ? 'Preview available' : 'Still rendering'}
+            </p>
+            {finalVideoURL && (
+              <a href={finalVideoURL} target="_blank" rel="noreferrer" className="mt-2 inline-block text-violet-700 hover:underline">
+                Open final MP4
+              </a>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Voice</p>
+            <p className="mt-1 font-semibold text-slate-900">{latestVoiceTrack?.voice_name || 'Waiting for narration'}</p>
+            <p className="mt-1 text-slate-500">{latestVoiceTrack ? formatDuration(latestVoiceTrack.duration_sec) : 'No audio yet'}</p>
+            {latestVoiceURL && (
+              <a href={latestVoiceURL} target="_blank" rel="noreferrer" className="mt-2 inline-block text-violet-700 hover:underline">
+                Listen audio
+              </a>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Assets</p>
+            <p className="mt-1 font-semibold text-slate-900">{mediaAssets.length} media / {subtitles.length} subtitles</p>
+            <p className="mt-1 text-slate-500">{script ? 'Script ready' : 'Script pending'}</p>
+          </div>
+        </div>
       )}
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -173,7 +260,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           <button
             onClick={() => onGenerate(project.id)}
             disabled={isGenerating}
-            className="flex-1 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-purple-700 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:opacity-50"
           >
             {isGenerating ? 'Starting…' : '▶ Generate'}
           </button>
@@ -189,15 +276,31 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           </button>
         )}
 
-        {isDone && (
-          <button className="flex-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700">
-            ↓ Download
-          </button>
+        {finalVideoURL && (
+          <a
+            href={finalVideoURL}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+          >
+            ↓ Open final
+          </a>
+        )}
+
+        {previewVideoURL && (
+          <a
+            href={previewVideoURL}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+          >
+            Preview
+          </a>
         )}
 
         <button
           onClick={() => setShowOutputs((value) => !value)}
-          className="rounded-lg border border-purple-200 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 transition-colors"
+          className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-50"
         >
           {showOutputs ? 'Hide outputs' : 'View step outputs'}
         </button>
@@ -205,7 +308,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
         {showOutputs && (
           <button
             onClick={() => void refresh()}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
           >
             Refresh
           </button>
@@ -213,16 +316,16 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
 
         <button
           onClick={() => onDelete(project.id)}
-          className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
         >
           Delete
         </button>
       </div>
 
       {showOutputs && (
-        <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+        <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
           {error && <p className="rounded bg-red-50 p-2 text-xs text-red-600">{error}</p>}
-          {loading && <p className="text-xs text-gray-500">Refreshing step outputs…</p>}
+          {loading && <p className="text-xs text-slate-500">Refreshing step outputs…</p>}
 
           <OutputSection
             title="1. Script generation"
@@ -231,7 +334,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           >
             {script ? (
               <div className="space-y-2">
-                <div className="grid gap-2 text-xs text-gray-700 sm:grid-cols-3">
+                <div className="grid gap-2 text-xs text-slate-700 sm:grid-cols-3">
                   <div className="rounded bg-white p-2"><strong>Title:</strong> {script.title || '—'}</div>
                   <div className="rounded bg-white p-2"><strong>Hook:</strong> {script.hook || '—'}</div>
                   <div className="rounded bg-white p-2"><strong>CTA:</strong> {script.cta || '—'}</div>
@@ -239,7 +342,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                 <pre className="max-h-56 overflow-auto rounded bg-slate-950 p-3 text-[11px] text-slate-100">{prettyValue(script.content_json)}</pre>
               </div>
             ) : (
-              <p className="text-xs text-gray-500">No script has been generated yet.</p>
+              <p className="text-xs text-slate-500">No script has been generated yet.</p>
             )}
           </OutputSection>
 
@@ -248,7 +351,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             subtitle="Moderation / validation step status"
             ready={hasReachedStage(currentStage, 'script_validation', currentStatus)}
           >
-            <p className="text-xs text-gray-700">
+            <p className="text-xs text-slate-700">
               {isFailed && currentStage === 'script_validation'
                 ? currentError || 'Validation failed.'
                 : hasReachedStage(currentStage, 'media_search', currentStatus)
@@ -267,10 +370,10 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             {mediaAssets.length > 0 ? (
               <div className="space-y-2">
                 {mediaAssets.map((asset) => (
-                  <div key={asset.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                  <div key={asset.id} className="rounded bg-white p-2 text-xs text-slate-700">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
                       <span className="rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700">{asset.type}</span>
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{asset.provider || asset.source}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{asset.provider || asset.source}</span>
                       <span>{asset.width || 0}×{asset.height || 0}</span>
                       {asset.duration_sec > 0 && <span>{formatDuration(asset.duration_sec)}</span>}
                     </div>
@@ -282,7 +385,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-gray-500">No media assets found yet.</p>
+              <p className="text-xs text-slate-500">No media assets found yet.</p>
             )}
           </OutputSection>
 
@@ -294,7 +397,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             {mediaAssets.length > 0 ? (
               <div className="space-y-2">
                 {mediaAssets.map((asset) => (
-                  <div key={`${asset.id}-prepared`} className="rounded bg-white p-2 text-xs text-gray-700">
+                  <div key={`${asset.id}-prepared`} className="rounded bg-white p-2 text-xs text-slate-700">
                     <div><strong>Type:</strong> {asset.type}</div>
                     <div><strong>Storage path:</strong> {renderInlineValue(asset.storage_path)}</div>
                     <div><strong>MIME:</strong> {asset.mime_type || 'not set yet'}</div>
@@ -305,7 +408,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-gray-500">Prepared asset output will appear here.</p>
+              <p className="text-xs text-slate-500">Prepared asset output will appear here.</p>
             )}
           </OutputSection>
 
@@ -318,19 +421,30 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
               <div className="space-y-2">
                 {voiceTracks.map((track) => {
                   const publicURL = getPublicMediaURL(track.metadata)
-                  const playableURL = publicURL ?? (track.storage_path?.startsWith('http://') || track.storage_path?.startsWith('https://') ? track.storage_path : null)
+                  const playableURL = publicURL ?? getHttpURL(track.storage_path)
+                  const engine = getMetadataValue(track.metadata, 'provider') ?? getMetadataValue(track.metadata, 'engine')
+                  const model = getMetadataValue(track.metadata, 'model') ?? getMetadataValue(track.metadata, 'tts_model')
+                  const transcript = getMetadataValue(track.metadata, 'transcript')
 
                   return (
-                    <div key={track.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                    <div key={track.id} className="rounded bg-white p-2 text-xs text-slate-700">
                       <div><strong>Voice:</strong> {track.voice_name || '—'}</div>
                       <div><strong>Language:</strong> {track.language || '—'}</div>
                       <div><strong>Duration:</strong> {formatDuration(track.duration_sec)}</div>
+                      {engine && <div><strong>Engine:</strong> {engine}</div>}
+                      {model && <div><strong>Model:</strong> {model}</div>}
                       <div><strong>Worker path:</strong> {renderInlineValue(track.storage_path)}</div>
                       <div><strong>Public URL:</strong> {renderInlineValue(publicURL ?? undefined)}</div>
                       {playableURL && (
                         <audio controls className="mt-2 w-full">
                           <source src={playableURL} />
                         </audio>
+                      )}
+                      {transcript && (
+                        <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
+                          <summary className="cursor-pointer font-semibold text-slate-700">Narration transcript</summary>
+                          <p className="mt-2 whitespace-pre-wrap text-slate-600">{transcript}</p>
+                        </details>
                       )}
                       {Boolean(track.metadata) && (
                         <pre className="mt-2 max-h-40 overflow-auto rounded bg-slate-950 p-2 text-[11px] text-slate-100">{prettyValue(track.metadata)}</pre>
@@ -340,7 +454,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                 })}
               </div>
             ) : (
-              <p className="text-xs text-gray-500">Voiceover output will appear here.</p>
+              <p className="text-xs text-slate-500">Voiceover output will appear here.</p>
             )}
           </OutputSection>
 
@@ -352,7 +466,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             {subtitles.length > 0 ? (
               <div className="space-y-2">
                 {subtitles.map((subtitle) => (
-                  <div key={subtitle.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                  <div key={subtitle.id} className="rounded bg-white p-2 text-xs text-slate-700">
                     <div><strong>Format:</strong> {subtitle.format}</div>
                     <div><strong>Storage path:</strong> {renderInlineValue(subtitle.storage_path)}</div>
                     <pre className="mt-2 max-h-40 overflow-auto rounded bg-slate-950 p-2 text-[11px] text-slate-100">{prettyValue(subtitle.content)}</pre>
@@ -360,7 +474,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-gray-500">Subtitles will show here when ready.</p>
+              <p className="text-xs text-slate-500">Subtitles will show here when ready.</p>
             )}
           </OutputSection>
 
@@ -372,7 +486,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             {musicTracks.length > 0 ? (
               <div className="space-y-2">
                 {musicTracks.map((track) => (
-                  <div key={track.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                  <div key={track.id} className="rounded bg-white p-2 text-xs text-slate-700">
                     <div><strong>Track type:</strong> {track.kind}</div>
                     <div><strong>Duration:</strong> {formatDuration(track.duration_sec)}</div>
                     <div><strong>Storage path:</strong> {renderInlineValue(track.storage_path)}</div>
@@ -380,7 +494,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-gray-500">Selected music will appear here.</p>
+              <p className="text-xs text-slate-500">Selected music will appear here.</p>
             )}
           </OutputSection>
 
@@ -391,13 +505,13 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           >
             {manifestAsset ? (
               <div className="space-y-2">
-                <div className="rounded bg-white p-2 text-xs text-gray-700">
+                <div className="rounded bg-white p-2 text-xs text-slate-700">
                   <div><strong>Manifest path:</strong> {renderInlineValue(manifestAsset.storage_path)}</div>
                 </div>
                 <pre className="max-h-56 overflow-auto rounded bg-slate-950 p-3 text-[11px] text-slate-100">{prettyValue(manifestAsset.metadata)}</pre>
               </div>
             ) : (
-              <p className="text-xs text-gray-500">The timeline manifest will appear here once built.</p>
+              <p className="text-xs text-slate-500">The timeline manifest will appear here once built.</p>
             )}
           </OutputSection>
 
@@ -409,39 +523,36 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             {displayRenders.length > 0 ? (
               <div className="space-y-2">
                 {displayRenders.map((render) => {
-                  const videoURL = render.storage_path?.startsWith('http://') || render.storage_path?.startsWith('https://')
-                    ? render.storage_path
-                    : null
-                  const thumbnailURL = render.thumbnail_path?.startsWith('http://') || render.thumbnail_path?.startsWith('https://')
-                    ? render.thumbnail_path
-                    : null
+                  const renderPublicURL = getPublicMediaURL(render.metadata)
+                  const videoURL = getHttpURL(render.storage_path) ?? renderPublicURL
+                  const thumbnailURL = getHttpURL(render.thumbnail_path)
 
                   return (
-                    <div key={render.id} className="rounded bg-white p-2 text-xs text-gray-700">
+                    <div key={render.id} className="rounded bg-white p-2 text-xs text-slate-700">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-700">{render.kind}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-700">{render.kind}</span>
                         <span>{render.resolution}</span>
                         <span>{render.fps} fps</span>
-                        <span className={`rounded-full px-2 py-0.5 ${render.status === 'done' ? 'bg-green-100 text-green-700' : render.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        <span className={`rounded-full px-2 py-0.5 ${render.status === 'done' ? 'bg-emerald-100 text-emerald-700' : render.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
                           {render.status}
                         </span>
                       </div>
                       <div><strong>Video path:</strong> {renderInlineValue(render.storage_path)}</div>
                       <div><strong>Thumbnail:</strong> {renderInlineValue(render.thumbnail_path)}</div>
                       {videoURL && render.status === 'done' && (
-                        <video controls className="mt-2 w-full rounded border border-gray-200 bg-black">
+                        <video controls className="mt-2 w-full rounded border border-slate-200 bg-black">
                           <source src={videoURL} />
                         </video>
                       )}
                       {thumbnailURL && (
-                        <img src={thumbnailURL} alt={`${render.kind} thumbnail`} className="mt-2 max-h-40 rounded border border-gray-200" />
+                        <img src={thumbnailURL} alt={`${render.kind} thumbnail`} className="mt-2 max-h-40 rounded border border-slate-200" />
                       )}
                     </div>
                   )
                 })}
               </div>
             ) : (
-              <p className="text-xs text-gray-500">Preview and final render outputs will show here.</p>
+              <p className="text-xs text-slate-500">Preview and final render outputs will show here.</p>
             )}
           </OutputSection>
         </div>
