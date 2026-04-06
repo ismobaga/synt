@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -169,12 +170,20 @@ func (w *Worker) handleScriptGenerate(ctx context.Context, j *db.Job) error {
 	}
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageScriptGeneration, "")
 
+	assets, err := w.db.GetAssets(ctx, j.ProjectID)
+	if err != nil {
+		return err
+	}
+	sourceURLs, sourceNotes := sourceMaterialContextFromAssets(assets)
+
 	req := content.GenerateRequest{
 		Topic:       project.Topic,
 		Platform:    project.Platform,
 		DurationSec: project.DurationSec,
 		Tone:        project.Tone,
 		Language:    project.Language,
+		SourceURLs:  sourceURLs,
+		SourceNotes: sourceNotes,
 	}
 	script, err := w.content.Generate(ctx, req)
 	if err != nil {
@@ -329,6 +338,46 @@ func (w *Worker) handleRenderThumbnail(ctx context.Context, j *db.Job) error {
 
 func (w *Worker) handleProjectFinalize(ctx context.Context, j *db.Job) error {
 	return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageFinalize, "")
+}
+
+func sourceMaterialContextFromAssets(assets []*db.Asset) ([]string, string) {
+	urls := make([]string, 0)
+	notes := make([]string, 0)
+	seen := map[string]bool{}
+
+	for _, asset := range assets {
+		if asset == nil {
+			continue
+		}
+		switch asset.Type {
+		case "source_material":
+			trimmed := strings.TrimSpace(asset.URL)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			urls = append(urls, trimmed)
+		case "source_note":
+			if len(asset.Metadata) == 0 {
+				continue
+			}
+			var payload struct {
+				Notes string `json:"notes"`
+				Text  string `json:"text"`
+			}
+			if err := json.Unmarshal(asset.Metadata, &payload); err == nil {
+				if note := strings.TrimSpace(payload.Notes); note != "" {
+					notes = append(notes, note)
+					continue
+				}
+				if note := strings.TrimSpace(payload.Text); note != "" {
+					notes = append(notes, note)
+				}
+			}
+		}
+	}
+
+	return urls, strings.Join(notes, "\n\n")
 }
 
 func stageForJobType(jobType string) string {

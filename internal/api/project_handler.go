@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -50,6 +51,90 @@ func resolveProjectTemplateID(templateID, renderEngine string) string {
 		return "remotion_" + trimmed
 	}
 	return trimmed
+}
+
+func normalizeSourceURLs(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, raw := range values {
+		for _, candidate := range strings.FieldsFunc(raw, func(r rune) bool {
+			return r == '\n' || r == '\r' || r == ','
+		}) {
+			trimmed := strings.TrimSpace(candidate)
+			lowered := strings.ToLower(trimmed)
+			if trimmed == "" || (!strings.HasPrefix(lowered, "http://") && !strings.HasPrefix(lowered, "https://")) {
+				continue
+			}
+			if seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			normalized = append(normalized, trimmed)
+		}
+	}
+	return normalized
+}
+
+func sourceProviderForURL(raw string) string {
+	lowered := strings.ToLower(strings.TrimSpace(raw))
+	if strings.Contains(lowered, "youtube.com") || strings.Contains(lowered, "youtu.be") {
+		return "youtube"
+	}
+	return "webpage"
+}
+
+func (h *ProjectHandler) storeSourceMaterial(ctx context.Context, projectID uuid.UUID, req CreateProjectRequest) error {
+	for index, rawURL := range normalizeSourceURLs(req.SourceURLs) {
+		metadata, err := json.Marshal(map[string]any{
+			"kind":        "source_url",
+			"input_order": index + 1,
+		})
+		if err != nil {
+			return err
+		}
+		asset := &db.Asset{
+			ID:          uuid.New(),
+			ProjectID:   &projectID,
+			Type:        "source_material",
+			Source:      "user_input",
+			Provider:    sourceProviderForURL(rawURL),
+			URL:         rawURL,
+			StoragePath: "",
+			MimeType:    "text/uri-list",
+			Metadata:    metadata,
+			CreatedAt:   time.Now().UTC(),
+		}
+		if err := h.db.CreateAsset(ctx, asset); err != nil {
+			return err
+		}
+	}
+
+	if note := strings.TrimSpace(req.SourceNotes); note != "" {
+		metadata, err := json.Marshal(map[string]any{
+			"kind":  "source_note",
+			"notes": note,
+		})
+		if err != nil {
+			return err
+		}
+		asset := &db.Asset{
+			ID:          uuid.New(),
+			ProjectID:   &projectID,
+			Type:        "source_note",
+			Source:      "user_input",
+			Provider:    "manual_note",
+			URL:         "",
+			StoragePath: "",
+			MimeType:    "text/plain",
+			Metadata:    metadata,
+			CreatedAt:   time.Now().UTC(),
+		}
+		if err := h.db.CreateAsset(ctx, asset); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Create handles POST /v1/projects.
@@ -102,6 +187,11 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.CreateProject(r.Context(), project); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create project: "+err.Error())
 		log.Println("failed to create project:", err)
+		return
+	}
+	if err := h.storeSourceMaterial(r.Context(), project.ID, req); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to store source material")
+		log.Println("failed to store source material:", err)
 		return
 	}
 

@@ -31,6 +31,8 @@ export interface CreateProjectInput {
   tone: string
   template_id: string
   render_engine?: 'ffmpeg' | 'remotion'
+  source_urls?: string[]
+  source_notes?: string
 }
 
 export interface Template {

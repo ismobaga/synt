@@ -146,7 +146,14 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
     shouldLoadOutputs && isActive
   )
 
-  const mediaAssets = useMemo(() => assets.filter((asset) => asset.type !== 'manifest'), [assets])
+  const sourceAssets = useMemo(
+    () => assets.filter((asset) => asset.type === 'source_material' || asset.type === 'source_note'),
+    [assets]
+  )
+  const mediaAssets = useMemo(
+    () => assets.filter((asset) => asset.type === 'image' || asset.type === 'video'),
+    [assets]
+  )
   const manifestAsset = useMemo(() => assets.find((asset) => asset.type === 'manifest'), [assets])
   const displayRenders = useMemo(() => {
     const rank = (status: string) => {
@@ -263,7 +270,9 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Assets</p>
             <p className="mt-1 font-semibold text-slate-900">{mediaAssets.length} media / {subtitles.length} subtitles</p>
-            <p className="mt-1 text-slate-500">{script ? 'Script ready' : 'Script pending'}</p>
+            <p className="mt-1 text-slate-500">
+              {sourceAssets.length > 0 ? `${sourceAssets.length} source reference(s) attached` : script ? 'Script ready' : 'Script pending'}
+            </p>
           </div>
         </div>
       )}
@@ -339,6 +348,32 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
         <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
           {error && <p className="rounded bg-red-50 p-2 text-xs text-red-600">{error}</p>}
           {loading && <p className="text-xs text-slate-500">Refreshing step outputs…</p>}
+
+          <OutputSection
+            title="0. Source material"
+            subtitle={sourceAssets.length > 0 ? 'Reference URLs and notes attached to this project' : 'No source material provided'}
+            ready={sourceAssets.length > 0}
+          >
+            {sourceAssets.length > 0 ? (
+              <div className="space-y-2">
+                {sourceAssets.map((asset) => {
+                  const noteText = getMetadataValue(asset.metadata, 'notes') ?? getMetadataValue(asset.metadata, 'text')
+                  return (
+                    <div key={asset.id} className="rounded bg-white p-2 text-xs text-slate-700">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-700">{asset.type === 'source_material' ? 'URL' : 'Note'}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{asset.provider || asset.source}</span>
+                      </div>
+                      {asset.url && <div><strong>Link:</strong> {renderInlineValue(asset.url)}</div>}
+                      {noteText && <p className="mt-1 whitespace-pre-wrap text-slate-600">{noteText}</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">Add article links, YouTube URLs, or notes during project creation to guide the script.</p>
+            )}
+          </OutputSection>
 
           <OutputSection
             title="1. Script generation"

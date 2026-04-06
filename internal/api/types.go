@@ -4,14 +4,16 @@ import "time"
 
 // CreateProjectRequest is the request body for POST /v1/projects.
 type CreateProjectRequest struct {
-	Topic        string `json:"topic"`
-	Language     string `json:"language"`
-	Platform     string `json:"platform"`
-	DurationSec  int    `json:"duration_sec"`
-	Tone         string `json:"tone"`
-	TemplateID   string `json:"template_id"`
-	RenderEngine string `json:"render_engine,omitempty"`
-	BrandKitID   string `json:"brand_kit_id,omitempty"`
+	Topic        string   `json:"topic"`
+	Language     string   `json:"language"`
+	Platform     string   `json:"platform"`
+	DurationSec  int      `json:"duration_sec"`
+	Tone         string   `json:"tone"`
+	TemplateID   string   `json:"template_id"`
+	RenderEngine string   `json:"render_engine,omitempty"`
+	SourceURLs   []string `json:"source_urls,omitempty"`
+	SourceNotes  string   `json:"source_notes,omitempty"`
+	BrandKitID   string   `json:"brand_kit_id,omitempty"`
 }
 
 // CreateProjectResponse is returned after creating a project.

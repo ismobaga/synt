@@ -57,7 +57,9 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
     tone: 'educational',
     template_id: templates[0]?.id ?? 'fast_caption_v1',
     render_engine: 'ffmpeg',
+    source_notes: '',
   })
+  const [sourceUrlsText, setSourceUrlsText] = useState('')
 
   const handleChange = (field: keyof CreateProjectInput, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -66,7 +68,22 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.topic.trim()) return
-    onSubmit({ ...form, topic: form.topic.trim() })
+
+    const sourceUrls = Array.from(
+      new Set(
+        sourceUrlsText
+          .split(/\r?\n|,/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+      )
+    )
+
+    onSubmit({
+      ...form,
+      topic: form.topic.trim(),
+      source_urls: sourceUrls,
+      source_notes: form.source_notes?.trim() || undefined,
+    })
   }
 
   return (
@@ -116,8 +133,8 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
                   type="button"
                   onClick={() => handleChange('render_engine', engine.value)}
                   className={`rounded-xl border px-3 py-3 text-left transition ${selected
-                      ? 'border-violet-500 bg-violet-50 text-violet-900'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50/50'
+                    ? 'border-violet-500 bg-violet-50 text-violet-900'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50/50'
                     }`}
                 >
                   <div className="text-sm font-semibold">{engine.label}</div>
@@ -198,26 +215,58 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Language</label>
-          <select
-            value={form.language}
-            onChange={(e) => handleChange('language', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none"
-          >
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="pt">Portuguese</option>
-          </select>
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Source material URLs</label>
+            <textarea
+              value={sourceUrlsText}
+              onChange={(e) => setSourceUrlsText(e.target.value)}
+              rows={4}
+              placeholder={'https://example.com/article\nhttps://youtu.be/your-video-id'}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. Paste one article or YouTube URL per line to guide the script.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Reference notes</label>
+            <textarea
+              value={form.source_notes ?? ''}
+              onChange={(e) => handleChange('source_notes', e.target.value)}
+              rows={3}
+              placeholder="Optional facts, angle, or points that must be included."
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+          </div>
         </div>
 
-        <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-xs text-violet-900">
-          <div className="font-semibold">Current setup</div>
-          <div className="mt-1">
-            {form.duration_sec}s · {form.language.toUpperCase()} · {form.tone} · {(form.render_engine ?? 'ffmpeg') === 'remotion' ? 'Remotion' : 'FFmpeg'}
+        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end lg:grid-cols-1">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Language</label>
+            <select
+              value={form.language}
+              onChange={(e) => handleChange('language', e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none"
+            >
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="pt">Portuguese</option>
+            </select>
+          </div>
+
+          <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-xs text-violet-900">
+            <div className="font-semibold">Current setup</div>
+            <div className="mt-1">
+              {form.duration_sec}s · {form.language.toUpperCase()} · {form.tone} · {(form.render_engine ?? 'ffmpeg') === 'remotion' ? 'Remotion' : 'FFmpeg'}
+            </div>
+            <div className="mt-1 text-violet-700">
+              {sourceUrlsText.trim() ? `${sourceUrlsText.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean).length} source link(s)` : 'No sources attached yet'}
+            </div>
           </div>
         </div>
       </div>

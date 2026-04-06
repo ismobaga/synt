@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/ismobaga/synt/pkg/llm"
 )
@@ -26,6 +27,8 @@ type GenerateRequest struct {
 	DurationSec int
 	Tone        string
 	Language    string
+	SourceURLs  []string
+	SourceNotes string
 	BrandConfig map[string]any
 }
 
@@ -69,12 +72,27 @@ func (s *Service) Generate(ctx context.Context, req GenerateRequest) (*ScriptCon
 }
 
 func buildPrompt(req GenerateRequest) string {
+	sourceContext := ""
+	if len(req.SourceURLs) > 0 || strings.TrimSpace(req.SourceNotes) != "" {
+		lines := []string{"", "Source material to ground the script:"}
+		for index, rawURL := range req.SourceURLs {
+			lines = append(lines, fmt.Sprintf("- Source %d: %s", index+1, rawURL))
+		}
+		if note := strings.TrimSpace(req.SourceNotes); note != "" {
+			lines = append(lines, "- Important notes: "+note)
+		}
+		lines = append(lines,
+			"Use these sources as guidance for framing and claims.",
+			"Do not invent specific facts that are not supported by the provided references.",
+		)
+		sourceContext = strings.Join(lines, "\n") + "\n"
+	}
+
 	return fmt.Sprintf(`You are a professional short-video scriptwriter.
 Generate a structured JSON script for a %d-second %s video about: %q
 Platform: %s
 Tone: %s
-Language: %s
-
+Language: %s%s
 Return ONLY valid JSON matching this schema:
 {
   "title": "string",
@@ -126,7 +144,7 @@ STORY FLOW RULES:
 
 `,
 		req.DurationSec, req.Platform, req.Topic,
-		req.Platform, req.Tone, req.Language,
+		req.Platform, req.Tone, req.Language, sourceContext,
 		req.DurationSec, req.DurationSec,
 	)
 }
