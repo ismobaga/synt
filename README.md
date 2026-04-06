@@ -14,7 +14,7 @@ Given a topic, Synt:
 4. **Creates phrase-based subtitles** with timing
 5. **Selects background music** matched to the script's mood
 6. **Builds a render manifest** (deterministic JSON timeline)
-7. **Renders the final HD video** via FFmpeg
+7. **Renders the final HD video** via FFmpeg, with an optional **Remotion (React)** composition flow
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Given a topic, Synt:
 | Database    | PostgreSQL                                       |
 | Queue       | Redis                                            |
 | Storage     | MinIO (S3-compatible)                            |
-| Video       | FFmpeg                                           |
+| Video       | FFmpeg + optional Remotion (React composition)   |
 | Auth        | JWT (golang-jwt)                                |
 
 ## Repository Structure
@@ -68,7 +68,7 @@ synt/
 │   ├── moderation/      — Content safety
 │   ├── music/           — Music selection
 │   ├── orchestrator/    — Pipeline coordination
-│   ├── render/          — FFmpeg rendering
+│   ├── render/          — FFmpeg rendering + Remotion-ready manifests
 │   ├── subtitle/        — SRT/VTT generation
 │   └── voice/           — TTS synthesis
 ├── pkg/
@@ -130,7 +130,8 @@ curl -X POST http://localhost:8080/v1/projects \
     "platform": "youtube_shorts",
     "duration_sec": 30,
     "tone": "educational",
-    "template_id": "fast_caption_v1"
+    "template_id": "fast_caption_v1",
+    "render_engine": "remotion"
   }'
 
 curl -X POST http://localhost:8080/v1/projects/{id}/generate \
@@ -185,6 +186,9 @@ project:generate
 | `fast_caption_v1` | Fast Captions | Phrase-based animated captions |
 | `minimal_clean_v1` | Minimal Clean | Sentence captions, subtle animations |
 | `promo_bold_v1` | Promo Bold | Word-by-word bold, energetic |
+| `remotion_fast_caption_v1` | Fast Captions (Remotion) | React composition using Remotion |
+| `remotion_minimal_clean_v1` | Minimal Clean (Remotion) | Cleaner React-based motion layout |
+| `remotion_promo_bold_v1` | Promo Bold (Remotion) | React-driven promo composition |
 
 ## Output Format
 
@@ -216,6 +220,28 @@ Replace stub clients in `pkg/llm` and `pkg/tts`:
 - **LLM**: OpenAI GPT-4, Anthropic Claude, Google Gemini
 - **TTS**: `espeak`, `edge-tts`, `kitten`, `chatterbox`, `vibevoice`, `speecht5`, ElevenLabs, Amazon Polly
 - **Media**: Pexels API, Pixabay API, Unsplash API
+
+## Remotion option
+
+You can now choose a render engine when creating a project:
+
+- `ffmpeg` — the current production render path
+- `remotion` — a React-based composition option for programmatic video layouts
+
+The starter Remotion composition lives in `apps/web/remotion/`.
+
+```bash
+cd apps/web
+npm install
+npm run remotion:studio
+```
+
+To export the sample composition directly:
+
+```bash
+cd apps/web
+npm run remotion:render
+```
 
 ### TTS Provider Options
 

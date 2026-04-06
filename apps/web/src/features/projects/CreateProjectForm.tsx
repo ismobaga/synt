@@ -28,6 +28,19 @@ const DURATIONS = [
   { value: 60, label: '60 seconds' },
 ]
 
+const RENDER_ENGINES = [
+  {
+    value: 'ffmpeg' as const,
+    label: 'FFmpeg',
+    description: 'Current stable render pipeline',
+  },
+  {
+    value: 'remotion' as const,
+    label: 'Remotion (React)',
+    description: 'Programmatic React composition, experimental',
+  },
+]
+
 const EXAMPLE_TOPICS = [
   '3 AI tools every small business should know',
   'Why sleep quality matters more than you think',
@@ -43,6 +56,7 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
     duration_sec: 30,
     tone: 'educational',
     template_id: templates[0]?.id ?? 'fast_caption_v1',
+    render_engine: 'ffmpeg',
   })
 
   const handleChange = (field: keyof CreateProjectInput, value: string | number) => {
@@ -74,19 +88,44 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
         </p>
       </div>
 
-      <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Quick ideas</p>
-        <div className="flex flex-wrap gap-2">
-          {EXAMPLE_TOPICS.map((topic) => (
-            <button
-              key={topic}
-              type="button"
-              onClick={() => handleChange('topic', topic)}
-              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
-            >
-              {topic}
-            </button>
-          ))}
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Quick ideas</p>
+          <div className="flex flex-wrap gap-2">
+            {EXAMPLE_TOPICS.map((topic) => (
+              <button
+                key={topic}
+                type="button"
+                onClick={() => handleChange('topic', topic)}
+                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
+              >
+                {topic}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Render engine</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {RENDER_ENGINES.map((engine) => {
+              const selected = form.render_engine === engine.value
+              return (
+                <button
+                  key={engine.value}
+                  type="button"
+                  onClick={() => handleChange('render_engine', engine.value)}
+                  className={`rounded-xl border px-3 py-3 text-left transition ${selected
+                      ? 'border-violet-500 bg-violet-50 text-violet-900'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50/50'
+                    }`}
+                >
+                  <div className="text-sm font-semibold">{engine.label}</div>
+                  <div className="mt-1 text-xs text-slate-500">{engine.description}</div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -178,10 +217,19 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
         <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-xs text-violet-900">
           <div className="font-semibold">Current setup</div>
           <div className="mt-1">
-            {form.duration_sec}s · {form.language.toUpperCase()} · {form.tone}
+            {form.duration_sec}s · {form.language.toUpperCase()} · {form.tone} · {(form.render_engine ?? 'ffmpeg') === 'remotion' ? 'Remotion' : 'FFmpeg'}
           </div>
         </div>
       </div>
+
+      {(form.render_engine ?? 'ffmpeg') === 'remotion' && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          <div className="font-semibold">Remotion mode enabled</div>
+          <p className="mt-1">
+            This keeps the normal content pipeline but tags the project for a React-based Remotion composition flow.
+          </p>
+        </div>
+      )}
 
       <button
         type="submit"

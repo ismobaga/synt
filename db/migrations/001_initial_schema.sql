@@ -151,5 +151,32 @@ VALUES
     "overlays": {"hook_position": "top_center", "cta_position": "bottom_center"},
     "transitions": ["zoom_cut", "flash"],
     "max_scenes": 8
+  }', NOW()),
+  ('remotion_fast_caption_v1', 'Fast Captions (Remotion)', 'caption', '{
+    "id": "remotion_fast_caption_v1",
+    "name": "Fast Captions (Remotion)",
+    "render_engine": "remotion",
+    "composition": "SyntProgrammaticVideo",
+    "video": {"aspect_ratio": "9:16", "fps": 30},
+    "captions": {"mode": "phrase", "position": "lower_third", "highlight_current_word": true},
+    "overlays": {"hook_position": "top_center", "cta_position": "bottom_center"}
+  }', NOW()),
+  ('remotion_minimal_clean_v1', 'Minimal Clean (Remotion)', 'minimal', '{
+    "id": "remotion_minimal_clean_v1",
+    "name": "Minimal Clean (Remotion)",
+    "render_engine": "remotion",
+    "composition": "SyntProgrammaticVideo",
+    "video": {"aspect_ratio": "9:16", "fps": 30},
+    "captions": {"mode": "sentence", "position": "bottom", "highlight_current_word": false},
+    "overlays": {"hook_position": "center", "cta_position": "bottom_center"}
+  }', NOW()),
+  ('remotion_promo_bold_v1', 'Promo Bold (Remotion)', 'promo', '{
+    "id": "remotion_promo_bold_v1",
+    "name": "Promo Bold (Remotion)",
+    "render_engine": "remotion",
+    "composition": "SyntProgrammaticVideo",
+    "video": {"aspect_ratio": "9:16", "fps": 30},
+    "captions": {"mode": "word", "position": "center", "highlight_current_word": true},
+    "overlays": {"hook_position": "top_center", "cta_position": "bottom_center"}
   }', NOW())
 ON CONFLICT (id) DO NOTHING;

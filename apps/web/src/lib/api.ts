@@ -30,6 +30,7 @@ export interface CreateProjectInput {
   duration_sec: number
   tone: string
   template_id: string
+  render_engine?: 'ffmpeg' | 'remotion'
 }
 
 export interface Template {

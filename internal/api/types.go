@@ -4,13 +4,14 @@ import "time"
 
 // CreateProjectRequest is the request body for POST /v1/projects.
 type CreateProjectRequest struct {
-	Topic      string `json:"topic"`
-	Language   string `json:"language"`
-	Platform   string `json:"platform"`
-	DurationSec int   `json:"duration_sec"`
-	Tone       string `json:"tone"`
-	TemplateID string `json:"template_id"`
-	BrandKitID string `json:"brand_kit_id,omitempty"`
+	Topic        string `json:"topic"`
+	Language     string `json:"language"`
+	Platform     string `json:"platform"`
+	DurationSec  int    `json:"duration_sec"`
+	Tone         string `json:"tone"`
+	TemplateID   string `json:"template_id"`
+	RenderEngine string `json:"render_engine,omitempty"`
+	BrandKitID   string `json:"brand_kit_id,omitempty"`
 }
 
 // CreateProjectResponse is returned after creating a project.
@@ -42,11 +43,11 @@ type ProjectStatusResponse struct {
 
 // SceneContent describes one scene in the generated script.
 type SceneContent struct {
-	Index       int    `json:"index"`
-	DurationSec int    `json:"duration_sec"`
-	Narration   string `json:"narration"`
-	Caption     string `json:"caption"`
-	VisualQuery string `json:"visual_query"`
+	Index        int    `json:"index"`
+	DurationSec  int    `json:"duration_sec"`
+	Narration    string `json:"narration"`
+	Caption      string `json:"caption"`
+	VisualQuery  string `json:"visual_query"`
 	OverlayStyle string `json:"overlay_style"`
 }
 
@@ -88,14 +89,15 @@ type RenderRequest struct {
 
 // TimelineManifest is the JSON manifest for the render engine.
 type TimelineManifest struct {
-	ProjectID   string               `json:"project_id"`
-	Resolution  ManifestResolution   `json:"resolution"`
-	FPS         int                  `json:"fps"`
-	DurationSec float64              `json:"duration_sec"`
-	Template    string               `json:"template"`
-	Scenes      []ManifestScene      `json:"scenes"`
-	Music       ManifestMusic        `json:"music"`
-	Branding    ManifestBranding     `json:"branding"`
+	ProjectID    string             `json:"project_id"`
+	Resolution   ManifestResolution `json:"resolution"`
+	FPS          int                `json:"fps"`
+	DurationSec  float64            `json:"duration_sec"`
+	Template     string             `json:"template"`
+	RenderEngine string             `json:"render_engine,omitempty"`
+	Scenes       []ManifestScene    `json:"scenes"`
+	Music        ManifestMusic      `json:"music"`
+	Branding     ManifestBranding   `json:"branding"`
 }
 
 // ManifestResolution holds video resolution.
@@ -106,14 +108,14 @@ type ManifestResolution struct {
 
 // ManifestScene describes a single scene in the render manifest.
 type ManifestScene struct {
-	Index      int                  `json:"index"`
-	StartSec   float64              `json:"start_sec"`
-	EndSec     float64              `json:"end_sec"`
-	Media      ManifestMedia        `json:"media"`
-	Voiceover  ManifestVoiceover    `json:"voiceover"`
-	Captions   []ManifestCaption    `json:"captions"`
-	TextOverlays []ManifestTextOverlay `json:"text_overlays"`
-	TransitionOut string            `json:"transition_out"`
+	Index         int                   `json:"index"`
+	StartSec      float64               `json:"start_sec"`
+	EndSec        float64               `json:"end_sec"`
+	Media         ManifestMedia         `json:"media"`
+	Voiceover     ManifestVoiceover     `json:"voiceover"`
+	Captions      []ManifestCaption     `json:"captions"`
+	TextOverlays  []ManifestTextOverlay `json:"text_overlays"`
+	TransitionOut string                `json:"transition_out"`
 }
 
 // ManifestMedia holds media reference for a scene.
@@ -159,17 +161,23 @@ type ManifestBranding struct {
 
 // Supported platforms.
 const (
-	PlatformTikTok        = "tiktok"
+	PlatformTikTok         = "tiktok"
 	PlatformInstagramReels = "instagram_reels"
-	PlatformYouTubeShorts = "youtube_shorts"
+	PlatformYouTubeShorts  = "youtube_shorts"
 )
 
 // Supported tones.
 const (
-	ToneEducational = "educational"
-	ToneEntertaining = "entertaining"
+	ToneEducational   = "educational"
+	ToneEntertaining  = "entertaining"
 	ToneInspirational = "inspirational"
-	TonePromotional = "promotional"
-	ToneProfessional = "professional"
-	ToneCasual = "casual"
+	TonePromotional   = "promotional"
+	ToneProfessional  = "professional"
+	ToneCasual        = "casual"
+)
+
+// Supported render engines.
+const (
+	RenderEngineFFmpeg   = "ffmpeg"
+	RenderEngineRemotion = "remotion"
 )

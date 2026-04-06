@@ -1,4 +1,4 @@
-// Package render assembles the final video using FFmpeg.
+// Package render assembles the final video using FFmpeg and prepares Remotion-ready manifests.
 package render
 
 import (
@@ -142,6 +142,18 @@ func (s *Service) renderAt(ctx context.Context, projectID uuid.UUID, kind, resol
 		return fmt.Errorf("create render dir: %w", err)
 	}
 
+	project, err := s.db.GetProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	engine := renderEngineForTemplate(project.TemplateID)
+	renderMetadata, _ := json.Marshal(map[string]any{
+		"renderer":      engine,
+		"template":      project.TemplateID,
+		"template_base": baseTemplateID(project.TemplateID),
+		"composition":   "SyntProgrammaticVideo",
+	})
+
 	render := &db.Render{
 		ID:         uuid.New(),
 		ProjectID:  projectID,
@@ -149,6 +161,7 @@ func (s *Service) renderAt(ctx context.Context, projectID uuid.UUID, kind, resol
 		Resolution: resolution,
 		FPS:        fps,
 		Status:     "processing",
+		Metadata:   renderMetadata,
 		CreatedAt:  time.Now().UTC(),
 	}
 	if err := s.db.CreateRender(ctx, render); err != nil {
@@ -460,13 +473,29 @@ func parseResolution(res string) (int, int) {
 	return w, h
 }
 
+func renderEngineForTemplate(templateID string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(templateID)), "remotion_") {
+		return api.RenderEngineRemotion
+	}
+	return api.RenderEngineFFmpeg
+}
+
+func baseTemplateID(templateID string) string {
+	trimmed := strings.TrimSpace(templateID)
+	if strings.HasPrefix(strings.ToLower(trimmed), "remotion_") && len(trimmed) > len("remotion_") {
+		return trimmed[len("remotion_"):]
+	}
+	return trimmed
+}
+
 func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTrack, subtitles []*db.Subtitle, script *db.Script) *api.TimelineManifest {
 	manifest := &api.TimelineManifest{
-		ProjectID:   project.ID.String(),
-		Resolution:  api.ManifestResolution{Width: 1080, Height: 1920},
-		FPS:         30,
-		DurationSec: float64(project.DurationSec),
-		Template:    project.TemplateID,
+		ProjectID:    project.ID.String(),
+		Resolution:   api.ManifestResolution{Width: 1080, Height: 1920},
+		FPS:          30,
+		DurationSec:  float64(project.DurationSec),
+		Template:     project.TemplateID,
+		RenderEngine: renderEngineForTemplate(project.TemplateID),
 	}
 
 	// Parse scenes from script

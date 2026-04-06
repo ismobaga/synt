@@ -44,3 +44,40 @@ func TestBuildFFmpegCommandUsesSceneConcatAndAudioMix(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManifestMarksRemotionProjects(t *testing.T) {
+	projectID := uuid.New()
+	project := &db.Project{
+		ID:          projectID,
+		DurationSec: 15,
+		TemplateID:  "remotion_fast_caption_v1",
+	}
+	script := &db.Script{
+		ID:        uuid.New(),
+		ProjectID: projectID,
+		ContentJSON: []byte(`{
+			"scenes": [
+				{"index": 0, "duration_sec": 5, "caption": "Hook", "narration": "Intro"},
+				{"index": 1, "duration_sec": 5, "caption": "Value", "narration": "Middle"}
+			]
+		}`),
+	}
+	assets := []*db.Asset{{
+		ID:          uuid.New(),
+		ProjectID:   &projectID,
+		Type:        "image",
+		StoragePath: "https://cdn.example.com/scene.jpg",
+		CreatedAt:   time.Now().UTC(),
+	}}
+
+	manifest := buildManifest(project, assets, nil, nil, script)
+	if manifest.RenderEngine != "remotion" {
+		t.Fatalf("expected remotion render engine, got %q", manifest.RenderEngine)
+	}
+	if manifest.Template != project.TemplateID {
+		t.Fatalf("expected template %q, got %q", project.TemplateID, manifest.Template)
+	}
+	if len(manifest.Scenes) != 2 {
+		t.Fatalf("expected 2 scenes, got %d", len(manifest.Scenes))
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,35 @@ type ProjectHandler struct {
 // NewProjectHandler creates a new ProjectHandler.
 func NewProjectHandler(database *db.DB, orch *orchestrator.Orchestrator) *ProjectHandler {
 	return &ProjectHandler{db: database, orchestrator: orch}
+}
+
+func normalizeRenderEngine(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case RenderEngineRemotion, "react", "react-composition":
+		return RenderEngineRemotion
+	default:
+		return RenderEngineFFmpeg
+	}
+}
+
+func resolveProjectTemplateID(templateID, renderEngine string) string {
+	trimmed := strings.TrimSpace(templateID)
+	if trimmed == "" {
+		trimmed = "fast_caption_v1"
+	}
+
+	lowered := strings.ToLower(trimmed)
+	wantsRemotion := normalizeRenderEngine(renderEngine) == RenderEngineRemotion
+	if strings.HasPrefix(lowered, "remotion_") {
+		if wantsRemotion || strings.TrimSpace(renderEngine) == "" {
+			return trimmed
+		}
+		return strings.TrimPrefix(trimmed, "remotion_")
+	}
+	if wantsRemotion {
+		return "remotion_" + trimmed
+	}
+	return trimmed
 }
 
 // Create handles POST /v1/projects.
@@ -45,6 +75,7 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.TemplateID == "" {
 		req.TemplateID = "fast_caption_v1"
 	}
+	req.TemplateID = resolveProjectTemplateID(req.TemplateID, req.RenderEngine)
 
 	userID, err := ensureDefaultUser(r.Context(), h.db)
 	if err != nil {

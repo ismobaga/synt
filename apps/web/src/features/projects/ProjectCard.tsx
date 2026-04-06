@@ -103,6 +103,16 @@ function getPublicMediaURL(metadata: unknown): string | null {
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : null
 }
 
+function getRenderEngineFromTemplateId(templateId: string) {
+  return templateId.trim().toLowerCase().startsWith('remotion_') ? 'Remotion' : 'FFmpeg'
+}
+
+function getBaseTemplateId(templateId: string) {
+  return templateId.trim().toLowerCase().startsWith('remotion_')
+    ? templateId.trim().slice('remotion_'.length)
+    : templateId.trim()
+}
+
 function getMetadataValue(metadata: unknown, key: string): string | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
   const candidate = (metadata as Record<string, unknown>)[key]
@@ -171,6 +181,8 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
 
   const voiceTracks = audio.filter((track) => track.kind === 'voiceover')
   const musicTracks = audio.filter((track) => track.kind === 'music')
+  const renderEngineLabel = getRenderEngineFromTemplateId(project.template_id)
+  const displayTemplateId = getBaseTemplateId(project.template_id)
   const latestFinalRender = useMemo(
     () => displayRenders.find((render) => render.kind === 'final' && render.status === 'done') ?? displayRenders.find((render) => render.status === 'done') ?? null,
     [displayRenders]
@@ -211,7 +223,8 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
       <div className="mb-3 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
         <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{project.language.toUpperCase()}</span>
         <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{project.tone}</span>
-        <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{project.template_id}</span>
+        <span className="rounded-full bg-violet-50 px-2 py-1 font-medium text-violet-700">{renderEngineLabel}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 font-medium">{displayTemplateId}</span>
         <span className="rounded-full bg-slate-100 px-2 py-1">Updated {formatRelativeTime(project.updated_at)}</span>
         {isActive && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Live refresh enabled</span>}
       </div>
@@ -227,7 +240,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Render</p>
             <p className="mt-1 font-semibold text-slate-900">
-              {latestFinalRender ? 'Final video ready' : latestPreviewRender ? 'Preview available' : 'Still rendering'}
+              {latestFinalRender ? `${renderEngineLabel} render ready` : latestPreviewRender ? `${renderEngineLabel} preview available` : 'Still rendering'}
             </p>
             {finalVideoURL && (
               <a href={finalVideoURL} target="_blank" rel="noreferrer" className="mt-2 inline-block text-violet-700 hover:underline">
