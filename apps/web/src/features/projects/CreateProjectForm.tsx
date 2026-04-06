@@ -227,7 +227,7 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
             />
             <p className="mt-1 text-xs text-slate-500">
-              Optional. Paste one article or YouTube URL per line to guide the script.
+              Optional. Paste one article or YouTube URL per line. Webpage text and video transcripts are fetched before script generation.
             </p>
           </div>
 

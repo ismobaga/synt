@@ -7,6 +7,7 @@ import type { Project } from '../../lib/api'
 
 const STAGE_ORDER = [
   'created',
+  'source_fetch',
   'script_generation',
   'script_validation',
   'media_search',
@@ -351,21 +352,45 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
 
           <OutputSection
             title="0. Source material"
-            subtitle={sourceAssets.length > 0 ? 'Reference URLs and notes attached to this project' : 'No source material provided'}
-            ready={sourceAssets.length > 0}
+            subtitle={sourceAssets.length > 0 ? 'Reference URLs, fetched webpage text, and video transcripts' : 'No source material provided'}
+            ready={sourceAssets.length > 0 || hasReachedStage(currentStage, 'source_fetch', currentStatus)}
           >
             {sourceAssets.length > 0 ? (
               <div className="space-y-2">
                 {sourceAssets.map((asset) => {
                   const noteText = getMetadataValue(asset.metadata, 'notes') ?? getMetadataValue(asset.metadata, 'text')
+                  const title = getMetadataValue(asset.metadata, 'title')
+                  const fetchStatus = getMetadataValue(asset.metadata, 'fetch_status')
+                  const fetchError = getMetadataValue(asset.metadata, 'fetch_error')
+                  const contentText = getMetadataValue(asset.metadata, 'content_text')
+                  const transcriptText = getMetadataValue(asset.metadata, 'transcript_text')
                   return (
                     <div key={asset.id} className="rounded bg-white p-2 text-xs text-slate-700">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-violet-50 px-2 py-0.5 font-medium text-violet-700">{asset.type === 'source_material' ? 'URL' : 'Note'}</span>
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{asset.provider || asset.source}</span>
+                        {fetchStatus && (
+                          <span className={`rounded-full px-2 py-0.5 ${fetchStatus === 'fetched' ? 'bg-emerald-100 text-emerald-700' : fetchStatus === 'failed' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                            {fetchStatus}
+                          </span>
+                        )}
                       </div>
                       {asset.url && <div><strong>Link:</strong> {renderInlineValue(asset.url)}</div>}
+                      {title && <div className="mt-1"><strong>Title:</strong> {title}</div>}
                       {noteText && <p className="mt-1 whitespace-pre-wrap text-slate-600">{noteText}</p>}
+                      {contentText && (
+                        <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
+                          <summary className="cursor-pointer font-semibold text-slate-700">Fetched webpage content</summary>
+                          <p className="mt-2 whitespace-pre-wrap text-slate-600">{contentText}</p>
+                        </details>
+                      )}
+                      {transcriptText && (
+                        <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
+                          <summary className="cursor-pointer font-semibold text-slate-700">Fetched video transcript</summary>
+                          <p className="mt-2 whitespace-pre-wrap text-slate-600">{transcriptText}</p>
+                        </details>
+                      )}
+                      {fetchError && <p className="mt-2 text-red-600">{fetchError}</p>}
                     </div>
                   )
                 })}

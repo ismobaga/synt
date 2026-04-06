@@ -1,4 +1,5 @@
 const STAGES = [
+  'source_fetch',
   'script_generation',
   'script_validation',
   'media_search',
@@ -15,6 +16,7 @@ const STAGES = [
 
 const STAGE_LABELS: Record<string, string> = {
   created: 'Created',
+  source_fetch: 'Fetching Sources',
   script_generation: 'Generating Script',
   script_validation: 'Validating Script',
   media_search: 'Searching Media',
@@ -50,7 +52,7 @@ export function PipelineProgress({ currentStage, status }: PipelineProgressProps
       <div className="mb-1 flex items-center justify-between text-sm text-gray-500">
         <span>{STAGE_LABELS[currentStage] ?? currentStage}</span>
         <span className="text-xs">
-          {status === 'done' ? `${STAGES.length} / ${STAGES.length}` : currentIdx >= 0 ? `${currentIdx + 1} / ${STAGES.length}` : '0 / 12'}
+          {status === 'done' ? `${STAGES.length} / ${STAGES.length}` : currentIdx >= 0 ? `${currentIdx + 1} / ${STAGES.length}` : `0 / ${STAGES.length}`}
         </span>
       </div>
 

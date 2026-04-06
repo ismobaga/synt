@@ -79,7 +79,8 @@ func buildPrompt(req GenerateRequest) string {
 			lines = append(lines, fmt.Sprintf("- Source %d: %s", index+1, rawURL))
 		}
 		if note := strings.TrimSpace(req.SourceNotes); note != "" {
-			lines = append(lines, "- Important notes: "+note)
+			formatted := strings.ReplaceAll(note, "\n", "\n  ")
+			lines = append(lines, "- Important notes and extracted reference content:\n  "+formatted)
 		}
 		lines = append(lines,
 			"Use these sources as guidance for framing and claims.",

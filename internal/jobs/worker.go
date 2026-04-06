@@ -16,6 +16,7 @@ import (
 	"github.com/ismobaga/synt/internal/moderation"
 	"github.com/ismobaga/synt/internal/music"
 	"github.com/ismobaga/synt/internal/render"
+	"github.com/ismobaga/synt/internal/source"
 	"github.com/ismobaga/synt/internal/subtitle"
 	"github.com/ismobaga/synt/internal/voice"
 )
@@ -23,6 +24,7 @@ import (
 // Worker processes jobs from the queue.
 type Worker struct {
 	db           *db.DB
+	source       *source.Service
 	content      *content.Service
 	media        *media.Service
 	voice        *voice.Service
@@ -55,6 +57,7 @@ func New(
 	}
 	return &Worker{
 		db:           database,
+		source:       source.New(nil),
 		content:      contentSvc,
 		media:        mediaSvc,
 		voice:        voiceSvc,
@@ -105,6 +108,8 @@ func (w *Worker) process(ctx context.Context, j *db.Job) error {
 	switch j.JobType {
 	case db.JobTypeProjectGenerate:
 		err = w.handleProjectGenerate(ctx, j)
+	case db.JobTypeSourceFetch:
+		err = w.handleSourceFetch(ctx, j)
 	case db.JobTypeScriptGenerate:
 		err = w.handleScriptGenerate(ctx, j)
 	case db.JobTypeScriptValidate:
@@ -140,7 +145,52 @@ func (w *Worker) process(ctx context.Context, j *db.Job) error {
 }
 
 func (w *Worker) handleProjectGenerate(ctx context.Context, j *db.Job) error {
+	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeSourceFetch, j.Payload)
+}
+
+func (w *Worker) handleSourceFetch(ctx context.Context, j *db.Job) error {
+	if err := w.hydrateSourceMaterials(ctx, j.ProjectID); err != nil {
+		return err
+	}
 	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeScriptGenerate, j.Payload)
+}
+
+func (w *Worker) hydrateSourceMaterials(ctx context.Context, projectID uuid.UUID) error {
+	assets, err := w.db.GetAssets(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	hasSources := false
+	for _, asset := range assets {
+		if asset != nil && asset.Type == "source_material" && strings.TrimSpace(asset.URL) != "" {
+			hasSources = true
+			break
+		}
+	}
+	if !hasSources {
+		return nil
+	}
+
+	_ = w.db.UpdateProjectStatus(ctx, projectID, db.ProjectStatusProcessing, db.StageSourceFetch, "")
+	for _, asset := range assets {
+		if asset == nil || asset.Type != "source_material" || strings.TrimSpace(asset.URL) == "" {
+			continue
+		}
+		if sourceMaterialAlreadyFetched(asset) {
+			continue
+		}
+
+		result, fetchErr := w.source.Fetch(ctx, asset.URL)
+		metadata := mergeSourceAssetMetadata(asset.Metadata, result, fetchErr)
+		if err := w.db.UpdateAssetMetadata(ctx, asset.ID, metadata); err != nil {
+			return err
+		}
+		if fetchErr != nil {
+			log.Printf("[worker] source fetch warning for %s: %v", asset.URL, fetchErr)
+		}
+	}
+	return nil
 }
 
 func (w *Worker) enqueueJob(ctx context.Context, projectID uuid.UUID, jobType string, payload []byte) error {
@@ -167,6 +217,9 @@ func (w *Worker) handleScriptGenerate(ctx context.Context, j *db.Job) error {
 	project, err := w.db.GetProject(ctx, j.ProjectID)
 	if err != nil {
 		return err
+	}
+	if err := w.hydrateSourceMaterials(ctx, j.ProjectID); err != nil {
+		return fmt.Errorf("hydrate source material: %w", err)
 	}
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageScriptGeneration, "")
 
@@ -352,11 +405,30 @@ func sourceMaterialContextFromAssets(assets []*db.Asset) ([]string, string) {
 		switch asset.Type {
 		case "source_material":
 			trimmed := strings.TrimSpace(asset.URL)
-			if trimmed == "" || seen[trimmed] {
+			if trimmed != "" && !seen[trimmed] {
+				seen[trimmed] = true
+				urls = append(urls, trimmed)
+			}
+			if len(asset.Metadata) == 0 {
 				continue
 			}
-			seen[trimmed] = true
-			urls = append(urls, trimmed)
+			var payload struct {
+				Title       string `json:"title"`
+				ContentText string `json:"content_text"`
+				Transcript  string `json:"transcript_text"`
+				FetchStatus string `json:"fetch_status"`
+			}
+			if err := json.Unmarshal(asset.Metadata, &payload); err == nil {
+				if title := strings.TrimSpace(payload.Title); title != "" {
+					notes = append(notes, "Source title: "+title)
+				}
+				if excerpt := promptExcerpt(payload.ContentText, 1800); excerpt != "" {
+					notes = append(notes, "Fetched source excerpt: "+excerpt)
+				}
+				if transcript := promptExcerpt(payload.Transcript, 2200); transcript != "" {
+					notes = append(notes, "Fetched video transcript: "+transcript)
+				}
+			}
 		case "source_note":
 			if len(asset.Metadata) == 0 {
 				continue
@@ -380,8 +452,71 @@ func sourceMaterialContextFromAssets(assets []*db.Asset) ([]string, string) {
 	return urls, strings.Join(notes, "\n\n")
 }
 
+func sourceMaterialAlreadyFetched(asset *db.Asset) bool {
+	if asset == nil || len(asset.Metadata) == 0 {
+		return false
+	}
+	var payload struct {
+		FetchStatus string `json:"fetch_status"`
+		ContentText string `json:"content_text"`
+		Transcript  string `json:"transcript_text"`
+	}
+	if err := json.Unmarshal(asset.Metadata, &payload); err != nil {
+		return false
+	}
+	return strings.EqualFold(payload.FetchStatus, "fetched") && (strings.TrimSpace(payload.ContentText) != "" || strings.TrimSpace(payload.Transcript) != "")
+}
+
+func mergeSourceAssetMetadata(existing []byte, result *source.Result, fetchErr error) []byte {
+	payload := map[string]any{}
+	if len(existing) > 0 {
+		_ = json.Unmarshal(existing, &payload)
+	}
+	payload["fetched_at"] = time.Now().UTC().Format(time.RFC3339)
+	if fetchErr != nil {
+		payload["fetch_status"] = "failed"
+		payload["fetch_error"] = fetchErr.Error()
+	} else {
+		payload["fetch_status"] = "fetched"
+		delete(payload, "fetch_error")
+	}
+	if result != nil {
+		if result.Provider != "" {
+			payload["resolved_provider"] = result.Provider
+		}
+		if result.Title != "" {
+			payload["title"] = result.Title
+		}
+		if result.Content != "" {
+			payload["content_text"] = result.Content
+		}
+		if result.Transcript != "" {
+			payload["transcript_text"] = result.Transcript
+		}
+	}
+	metadata, err := json.Marshal(payload)
+	if err != nil {
+		return existing
+	}
+	return metadata
+}
+
+func promptExcerpt(value string, maxLen int) string {
+	trimmed := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if trimmed == "" || maxLen <= 0 {
+		return trimmed
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= maxLen {
+		return trimmed
+	}
+	return string(runes[:maxLen]) + "…"
+}
+
 func stageForJobType(jobType string) string {
 	switch jobType {
+	case db.JobTypeSourceFetch:
+		return db.StageSourceFetch
 	case db.JobTypeScriptGenerate:
 		return db.StageScriptGeneration
 	case db.JobTypeScriptValidate:

@@ -155,6 +155,13 @@ func (db *DB) CreateAsset(ctx context.Context, a *Asset) error {
 	return err
 }
 
+// UpdateAssetMetadata updates the metadata blob for an asset.
+func (db *DB) UpdateAssetMetadata(ctx context.Context, id uuid.UUID, metadata []byte) error {
+	q := `UPDATE assets SET metadata=$2 WHERE id=$1`
+	_, err := db.ExecContext(ctx, q, id, metadata)
+	return err
+}
+
 // GetAudioTracks retrieves audio tracks for a project.
 func (db *DB) GetAudioTracks(ctx context.Context, projectID uuid.UUID) ([]*AudioTrack, error) {
 	q := `SELECT id, project_id, kind, COALESCE(voice_name,''), COALESCE(language,''),

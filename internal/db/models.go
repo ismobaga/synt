@@ -18,19 +18,19 @@ type User struct {
 
 // Project represents a video generation project.
 type Project struct {
-	ID           uuid.UUID  `db:"id" json:"id"`
-	UserID       uuid.UUID  `db:"user_id" json:"user_id"`
-	Topic        string     `db:"topic" json:"topic"`
-	Language     string     `db:"language" json:"language"`
-	Platform     string     `db:"platform" json:"platform"`
-	DurationSec  int        `db:"duration_sec" json:"duration_sec"`
-	Tone         string     `db:"tone" json:"tone"`
-	TemplateID   string     `db:"template_id" json:"template_id"`
-	Status       string     `db:"status" json:"status"`
-	CurrentStage string     `db:"current_stage" json:"current_stage"`
-	ErrorMessage string     `db:"error_message" json:"error_message,omitempty"`
-	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+	ID           uuid.UUID `db:"id" json:"id"`
+	UserID       uuid.UUID `db:"user_id" json:"user_id"`
+	Topic        string    `db:"topic" json:"topic"`
+	Language     string    `db:"language" json:"language"`
+	Platform     string    `db:"platform" json:"platform"`
+	DurationSec  int       `db:"duration_sec" json:"duration_sec"`
+	Tone         string    `db:"tone" json:"tone"`
+	TemplateID   string    `db:"template_id" json:"template_id"`
+	Status       string    `db:"status" json:"status"`
+	CurrentStage string    `db:"current_stage" json:"current_stage"`
+	ErrorMessage string    `db:"error_message" json:"error_message,omitempty"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
 // Script holds the generated script for a project.
@@ -149,43 +149,45 @@ const (
 
 // Project stages.
 const (
-	StageCreated           = "created"
-	StageScriptGeneration  = "script_generation"
-	StageScriptValidation  = "script_validation"
-	StageMediaSearch       = "media_search"
-	StageMediaPrepare      = "media_prepare"
-	StageVoiceGeneration   = "voice_generation"
+	StageCreated            = "created"
+	StageSourceFetch        = "source_fetch"
+	StageScriptGeneration   = "script_generation"
+	StageScriptValidation   = "script_validation"
+	StageMediaSearch        = "media_search"
+	StageMediaPrepare       = "media_prepare"
+	StageVoiceGeneration    = "voice_generation"
 	StageSubtitleGeneration = "subtitle_generation"
-	StageMusicSelection    = "music_selection"
-	StageTimelineBuild     = "timeline_build"
-	StageRenderPreview     = "render_preview"
-	StageRenderFinal       = "render_final"
-	StageRenderThumbnail   = "render_thumbnail"
-	StageFinalize          = "finalize"
+	StageMusicSelection     = "music_selection"
+	StageTimelineBuild      = "timeline_build"
+	StageRenderPreview      = "render_preview"
+	StageRenderFinal        = "render_final"
+	StageRenderThumbnail    = "render_thumbnail"
+	StageFinalize           = "finalize"
 )
 
 // Job types.
 const (
-	JobTypeProjectGenerate   = "project:generate"
-	JobTypeScriptGenerate    = "script:generate"
-	JobTypeScriptValidate    = "script:validate"
-	JobTypeMediaSearch       = "media:search"
-	JobTypeMediaPrepare      = "media:prepare"
-	JobTypeVoiceGenerate     = "voice:generate"
-	JobTypeSubtitleGenerate  = "subtitle:generate"
-	JobTypeMusicSelect       = "music:select"
-	JobTypeTimelineBuild     = "timeline:build"
-	JobTypeRenderPreview     = "render:preview"
-	JobTypeRenderFinal       = "render:final"
-	JobTypeRenderThumbnail   = "render:thumbnail"
-	JobTypeProjectFinalize   = "project:finalize"
+	JobTypeProjectGenerate  = "project:generate"
+	JobTypeSourceFetch      = "source:fetch"
+	JobTypeScriptGenerate   = "script:generate"
+	JobTypeScriptValidate   = "script:validate"
+	JobTypeMediaSearch      = "media:search"
+	JobTypeMediaPrepare     = "media:prepare"
+	JobTypeVoiceGenerate    = "voice:generate"
+	JobTypeSubtitleGenerate = "subtitle:generate"
+	JobTypeMusicSelect      = "music:select"
+	JobTypeTimelineBuild    = "timeline:build"
+	JobTypeRenderPreview    = "render:preview"
+	JobTypeRenderFinal      = "render:final"
+	JobTypeRenderThumbnail  = "render:thumbnail"
+	JobTypeProjectFinalize  = "project:finalize"
 )
 
 // Job statuses.
 const (
-	JobStatusPending   = "pending"
-	JobStatusRunning   = "running"
-	JobStatusDone      = "done"
-	JobStatusFailed    = "failed"
-	JobStatusRetrying  = "retrying"
+	JobStatusPending  = "pending"
+	JobStatusRunning  = "running"
+	JobStatusDone     = "done"
+	JobStatusFailed   = "failed"
+	JobStatusRetrying = "retrying"
 )

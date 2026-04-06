@@ -86,8 +86,9 @@ func sourceProviderForURL(raw string) string {
 func (h *ProjectHandler) storeSourceMaterial(ctx context.Context, projectID uuid.UUID, req CreateProjectRequest) error {
 	for index, rawURL := range normalizeSourceURLs(req.SourceURLs) {
 		metadata, err := json.Marshal(map[string]any{
-			"kind":        "source_url",
-			"input_order": index + 1,
+			"kind":         "source_url",
+			"input_order":  index + 1,
+			"fetch_status": "pending",
 		})
 		if err != nil {
 			return err
