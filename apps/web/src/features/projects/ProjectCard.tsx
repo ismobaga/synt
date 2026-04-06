@@ -1,9 +1,9 @@
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { PipelineProgress } from '../../components/ui/PipelineProgress'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { useProjectOutputs } from '../../hooks/useProjectOutputs'
 import { useProjectStatus } from '../../hooks/useProjectStatus'
-import type { Project } from '../../lib/api'
+import { api, type AssetRecord, type Project, type RerunStep, type ScriptRecord, type UpdateScriptInput } from '../../lib/api'
 
 const STAGE_ORDER = [
   'created',
@@ -26,6 +26,7 @@ interface ProjectCardProps {
   project: Project
   onGenerate: (id: string) => void
   onDelete: (id: string) => void
+  onRefreshProjects?: () => void | Promise<void>
   isGenerating: boolean
 }
 
@@ -33,10 +34,49 @@ interface OutputSectionProps {
   title: string
   subtitle: string
   ready: boolean
+  actions?: ReactNode
   children: ReactNode
 }
 
-function OutputSection({ title, subtitle, ready, children }: OutputSectionProps) {
+type SubtitleStyleDraft = {
+  preset: string
+  position: string
+  font_size: number
+  primary_color: string
+  outline_color: string
+  bold: boolean
+}
+
+type SceneDraft = {
+  index: number
+  duration_sec: number
+  narration: string
+  caption: string
+  visual_query: string
+  overlay_style: string
+}
+
+type ScriptDraft = {
+  title: string
+  hook: string
+  cta: string
+  language: string
+  duration_sec: number
+  music_mood: string
+  subtitle_style: SubtitleStyleDraft
+  scenes: SceneDraft[]
+}
+
+type MediaOverrideDraft = {
+  id: string
+  type: string
+  provider: string
+  url: string
+  storage_path: string
+  metadata: Record<string, unknown>
+}
+
+function OutputSection({ title, subtitle, ready, actions, children }: OutputSectionProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
       <div className="mb-2 flex items-start justify-between gap-3">
@@ -44,14 +84,43 @@ function OutputSection({ title, subtitle, ready, children }: OutputSectionProps)
           <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
           <p className="text-xs text-slate-500">{subtitle}</p>
         </div>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
-        >
-          {ready ? 'Ready' : 'Waiting'}
-        </span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {actions}
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
+          >
+            {ready ? 'Ready' : 'Waiting'}
+          </span>
+        </div>
       </div>
       {children}
     </section>
+  )
+}
+
+function StepActionButton({
+  label,
+  onClick,
+  disabled = false,
+  tone = 'default',
+}: {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  tone?: 'default' | 'primary'
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${tone === 'primary'
+        ? 'bg-violet-600 text-white hover:bg-violet-700 disabled:bg-violet-300'
+        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:text-slate-400'
+        } disabled:cursor-not-allowed`}
+    >
+      {label}
+    </button>
   )
 }
 
@@ -114,11 +183,71 @@ function getBaseTemplateId(templateId: string) {
     : templateId.trim()
 }
 
+function getMetadataObject(metadata: unknown): Record<string, unknown> {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {}
+  return metadata as Record<string, unknown>
+}
+
 function getMetadataValue(metadata: unknown, key: string): string | null {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
-  const candidate = (metadata as Record<string, unknown>)[key]
+  const candidate = getMetadataObject(metadata)[key]
   if (candidate == null) return null
   return typeof candidate === 'string' ? candidate : String(candidate)
+}
+
+function normalizeSubtitleStyle(value: unknown): SubtitleStyleDraft {
+  const meta = getMetadataObject(value)
+  const fontSize = Number(meta.font_size)
+  return {
+    preset: typeof meta.preset === 'string' && meta.preset ? meta.preset : 'clean',
+    position: typeof meta.position === 'string' && meta.position ? meta.position : 'bottom',
+    font_size: Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 14,
+    primary_color: typeof meta.primary_color === 'string' && meta.primary_color ? meta.primary_color : '#FFFFFF',
+    outline_color: typeof meta.outline_color === 'string' && meta.outline_color ? meta.outline_color : '#111827',
+    bold: Boolean(meta.bold),
+  }
+}
+
+function normalizeScriptDraft(script: ScriptRecord | null): ScriptDraft | null {
+  if (!script) return null
+  const content = getMetadataObject(script.content_json)
+  const rawScenes = Array.isArray(content.scenes) ? content.scenes : []
+  const scenes = rawScenes.map((scene, index) => {
+    const value = getMetadataObject(scene)
+    const duration = Number(value.duration_sec)
+    return {
+      index: Number(value.index) || index + 1,
+      duration_sec: Number.isFinite(duration) && duration > 0 ? duration : 5,
+      narration: typeof value.narration === 'string' ? value.narration : '',
+      caption: typeof value.caption === 'string' ? value.caption : '',
+      visual_query: typeof value.visual_query === 'string' ? value.visual_query : '',
+      overlay_style: typeof value.overlay_style === 'string' && value.overlay_style ? value.overlay_style : 'main',
+    }
+  })
+
+  return {
+    title: typeof content.title === 'string' && content.title ? content.title : script.title,
+    hook: typeof content.hook === 'string' && content.hook ? content.hook : script.hook,
+    cta: typeof content.cta === 'string' && content.cta ? content.cta : script.cta,
+    language: typeof content.language === 'string' && content.language ? content.language : script.language,
+    duration_sec: Number(content.duration_sec) || scenes.reduce((total, scene) => total + scene.duration_sec, 0) || 30,
+    music_mood: typeof content.music_mood === 'string' ? content.music_mood : '',
+    subtitle_style: normalizeSubtitleStyle(content.subtitle_style),
+    scenes,
+  }
+}
+
+function makeMediaOverrideDrafts(assets: AssetRecord[]) {
+  return assets.reduce<Record<string, MediaOverrideDraft>>((acc, asset) => {
+    acc[asset.id] = {
+      id: asset.id,
+      type: asset.type || 'video',
+      provider: asset.provider || asset.source || 'manual_override',
+      url: asset.url || '',
+      storage_path: asset.storage_path || asset.url || '',
+      metadata: getMetadataObject(asset.metadata),
+    }
+    return acc
+  }, {})
 }
 
 function getHttpURL(value?: string | null) {
@@ -126,8 +255,16 @@ function getHttpURL(value?: string | null) {
   return value.startsWith('http://') || value.startsWith('https://') ? value : null
 }
 
-export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: ProjectCardProps) {
+export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, isGenerating }: ProjectCardProps) {
   const [showOutputs, setShowOutputs] = useState(project.status === 'processing' || project.status === 'failed')
+  const [showEditor, setShowEditor] = useState(false)
+  const [scriptDraft, setScriptDraft] = useState<ScriptDraft | null>(null)
+  const [mediaDrafts, setMediaDrafts] = useState<Record<string, MediaOverrideDraft>>({})
+  const [editorNotice, setEditorNotice] = useState<string | null>(null)
+  const [editorError, setEditorError] = useState<string | null>(null)
+  const [savingScript, setSavingScript] = useState(false)
+  const [savingMedia, setSavingMedia] = useState(false)
+  const [rerunningStep, setRerunningStep] = useState<RerunStep | null>(null)
   const { status, stage, error: statusError } = useProjectStatus(
     project.status === 'processing' || project.status === 'queued' ? project.id : null
   )
@@ -209,6 +346,163 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
   const latestVoiceURL = latestVoiceTrack
     ? getPublicMediaURL(latestVoiceTrack.metadata) ?? getHttpURL(latestVoiceTrack.storage_path)
     : null
+  const sceneReview = scriptDraft?.scenes ?? []
+  const isWorking = savingScript || savingMedia || Boolean(rerunningStep)
+
+  useEffect(() => {
+    if (!showEditor) return
+    setScriptDraft((current) => current ?? normalizeScriptDraft(script))
+    setMediaDrafts((current) => (Object.keys(current).length > 0 ? current : makeMediaOverrideDrafts(mediaAssets)))
+  }, [showEditor, script, mediaAssets])
+
+  const resetEditorFromOutputs = () => {
+    setScriptDraft(normalizeScriptDraft(script))
+    setMediaDrafts(makeMediaOverrideDrafts(mediaAssets))
+    setEditorNotice(null)
+    setEditorError(null)
+  }
+
+  const toggleEditor = () => {
+    setShowOutputs(true)
+    setShowEditor((value) => {
+      const next = !value
+      if (next) {
+        setScriptDraft(normalizeScriptDraft(script))
+        setMediaDrafts(makeMediaOverrideDrafts(mediaAssets))
+        setEditorNotice(null)
+        setEditorError(null)
+      }
+      return next
+    })
+  }
+
+  const handleSceneChange = (sceneIndex: number, field: keyof SceneDraft, value: string | number) => {
+    setScriptDraft((current) => {
+      if (!current) return current
+      const scenes = current.scenes.map((scene, index) =>
+        index === sceneIndex ? { ...scene, [field]: value } : scene
+      )
+      const nextDuration = scenes.reduce((total, scene) => total + Number(scene.duration_sec || 0), 0)
+      return { ...current, scenes, duration_sec: nextDuration || current.duration_sec }
+    })
+  }
+
+  const handleSubtitleStyleChange = (field: keyof SubtitleStyleDraft, value: string | number | boolean) => {
+    setScriptDraft((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        subtitle_style: {
+          ...current.subtitle_style,
+          [field]: value,
+        },
+      }
+    })
+  }
+
+  const handleMediaDraftChange = (assetId: string, field: keyof MediaOverrideDraft, value: string) => {
+    setMediaDrafts((current) => ({
+      ...current,
+      [assetId]: {
+        ...(current[assetId] ?? {
+          id: assetId,
+          type: 'video',
+          provider: 'manual_override',
+          url: '',
+          storage_path: '',
+          metadata: {},
+        }),
+        [field]: value,
+      },
+    }))
+  }
+
+  const handleSaveScript = async () => {
+    if (!scriptDraft) return
+    setSavingScript(true)
+    setEditorError(null)
+    setEditorNotice(null)
+
+    const payload: UpdateScriptInput = {
+      title: scriptDraft.title.trim(),
+      hook: scriptDraft.hook.trim(),
+      cta: scriptDraft.cta.trim(),
+      language: scriptDraft.language,
+      duration_sec: Math.max(1, Math.round(scriptDraft.duration_sec || 30)),
+      music_mood: scriptDraft.music_mood,
+      subtitle_style: scriptDraft.subtitle_style,
+      scenes: scriptDraft.scenes.map((scene, index) => ({
+        index: scene.index || index + 1,
+        duration_sec: Math.max(1, Math.round(Number(scene.duration_sec) || 1)),
+        narration: scene.narration.trim(),
+        caption: scene.caption.trim(),
+        visual_query: scene.visual_query.trim(),
+        overlay_style: scene.overlay_style,
+      })),
+    }
+
+    try {
+      await api.projects.updateScript(project.id, payload)
+      await refresh()
+      await Promise.resolve(onRefreshProjects?.())
+      setEditorNotice('Script changes saved. Use the rerun buttons to regenerate from the step you want.')
+    } catch (err) {
+      setEditorError(err instanceof Error ? err.message : 'Failed to save script changes')
+    } finally {
+      setSavingScript(false)
+    }
+  }
+
+  const handleSaveMedia = async () => {
+    if (mediaAssets.length === 0) return
+    setSavingMedia(true)
+    setEditorError(null)
+    setEditorNotice(null)
+    try {
+      await Promise.all(
+        mediaAssets.map((asset) => {
+          const draft = mediaDrafts[asset.id]
+          if (!draft) return Promise.resolve()
+          return api.projects.updateAsset(project.id, asset.id, {
+            type: draft.type,
+            provider: draft.provider,
+            url: draft.url.trim(),
+            storage_path: (draft.storage_path || draft.url).trim(),
+            mime_type: asset.mime_type,
+            metadata: {
+              ...getMetadataObject(asset.metadata),
+              ...draft.metadata,
+              manual_override: true,
+              override_updated_at: new Date().toISOString(),
+            },
+          })
+        })
+      )
+      await refresh()
+      setEditorNotice('Media overrides saved. Rerun the timeline or preview to apply them.')
+    } catch (err) {
+      setEditorError(err instanceof Error ? err.message : 'Failed to save media replacements')
+    } finally {
+      setSavingMedia(false)
+    }
+  }
+
+  const handleRerunStep = async (step: RerunStep) => {
+    setRerunningStep(step)
+    setEditorError(null)
+    setEditorNotice(null)
+    try {
+      await api.projects.rerunStep(project.id, step)
+      await Promise.resolve(onRefreshProjects?.())
+      await refresh()
+      setShowOutputs(true)
+      setEditorNotice(`Queued a rerun from the ${step.replace('_', ' ')} step.`)
+    } catch (err) {
+      setEditorError(err instanceof Error ? err.message : 'Failed to queue rerun')
+    } finally {
+      setRerunningStep(null)
+    }
+  }
 
   const platformLabels: Record<string, string> = {
     youtube_shorts: '▶ YouTube Shorts',
@@ -328,6 +622,15 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
           {showOutputs ? 'Hide outputs' : 'View step outputs'}
         </button>
 
+        {script && (
+          <button
+            onClick={toggleEditor}
+            className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+          >
+            {showEditor ? 'Close editor' : '✏️ Editing studio'}
+          </button>
+        )}
+
         {showOutputs && (
           <button
             onClick={() => void refresh()}
@@ -349,11 +652,281 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
         <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
           {error && <p className="rounded bg-red-50 p-2 text-xs text-red-600">{error}</p>}
           {loading && <p className="text-xs text-slate-500">Refreshing step outputs…</p>}
+          {editorError && <p className="rounded bg-red-50 p-2 text-xs text-red-600">{editorError}</p>}
+          {editorNotice && <p className="rounded bg-emerald-50 p-2 text-xs text-emerald-700">{editorNotice}</p>}
+
+          {script && (
+            <OutputSection
+              title="✏️ Editing studio"
+              subtitle="Edit the script before the next render, review each scene, replace media manually, adjust subtitle styling, and rerun from any step."
+              ready={!!script}
+              actions={
+                <>
+                  <StepActionButton
+                    label={showEditor ? 'Hide editor' : 'Open editor'}
+                    onClick={toggleEditor}
+                    tone="primary"
+                  />
+                  <StepActionButton
+                    label={rerunningStep === 'timeline' ? 'Queueing…' : 'Rerun timeline'}
+                    onClick={() => void handleRerunStep('timeline')}
+                    disabled={isWorking}
+                  />
+                </>
+              }
+            >
+              {showEditor && scriptDraft ? (
+                <div className="space-y-3">
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <label className="text-xs font-medium text-slate-700">
+                      Title
+                      <input
+                        value={scriptDraft.title}
+                        onChange={(event) => setScriptDraft((current) => current ? { ...current, title: event.target.value } : current)}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-slate-700">
+                      Duration (seconds)
+                      <input
+                        type="number"
+                        min={5}
+                        value={scriptDraft.duration_sec}
+                        onChange={(event) => setScriptDraft((current) => current ? { ...current, duration_sec: Number(event.target.value) || current.duration_sec } : current)}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-slate-700 lg:col-span-2">
+                      Hook
+                      <textarea
+                        value={scriptDraft.hook}
+                        onChange={(event) => setScriptDraft((current) => current ? { ...current, hook: event.target.value } : current)}
+                        rows={2}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-slate-700 lg:col-span-2">
+                      CTA
+                      <textarea
+                        value={scriptDraft.cta}
+                        onChange={(event) => setScriptDraft((current) => current ? { ...current, cta: event.target.value } : current)}
+                        rows={2}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div>
+                        <h5 className="text-sm font-semibold text-slate-900">Subtitle & style adjustments</h5>
+                        <p className="text-xs text-slate-500">These settings are applied to the next render.</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      <label className="text-xs font-medium text-slate-700">
+                        Preset
+                        <select
+                          value={scriptDraft.subtitle_style.preset}
+                          onChange={(event) => handleSubtitleStyleChange('preset', event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        >
+                          <option value="clean">Clean</option>
+                          <option value="bold">Bold</option>
+                          <option value="hook">Hook</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-slate-700">
+                        Position
+                        <select
+                          value={scriptDraft.subtitle_style.position}
+                          onChange={(event) => handleSubtitleStyleChange('position', event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        >
+                          <option value="bottom">Bottom</option>
+                          <option value="center">Center</option>
+                          <option value="top">Top</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-medium text-slate-700">
+                        Font size
+                        <input
+                          type="number"
+                          min={10}
+                          max={40}
+                          value={scriptDraft.subtitle_style.font_size}
+                          onChange={(event) => handleSubtitleStyleChange('font_size', Number(event.target.value) || 14)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-slate-700">
+                        Text color
+                        <input
+                          type="color"
+                          value={scriptDraft.subtitle_style.primary_color}
+                          onChange={(event) => handleSubtitleStyleChange('primary_color', event.target.value)}
+                          className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-2"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-slate-700">
+                        Outline color
+                        <input
+                          type="color"
+                          value={scriptDraft.subtitle_style.outline_color}
+                          onChange={(event) => handleSubtitleStyleChange('outline_color', event.target.value)}
+                          className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-2"
+                        />
+                      </label>
+                    </div>
+                    <label className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={scriptDraft.subtitle_style.bold}
+                        onChange={(event) => handleSubtitleStyleChange('bold', event.target.checked)}
+                      />
+                      Use bold subtitle emphasis
+                    </label>
+                  </div>
+
+                  <div className="space-y-3">
+                    {sceneReview.map((scene, index) => {
+                      const asset = mediaAssets[index]
+                      const draft = asset ? mediaDrafts[asset.id] : null
+                      return (
+                        <div key={`${scene.index}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h5 className="text-sm font-semibold text-slate-900">Scene {scene.index || index + 1}</h5>
+                              <p className="text-xs text-slate-500">Review narration, caption, visual query, and media override for this scene.</p>
+                            </div>
+                            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{formatDuration(scene.duration_sec)}</span>
+                          </div>
+
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <label className="text-xs font-medium text-slate-700 lg:col-span-2">
+                              Narration
+                              <textarea
+                                value={scene.narration}
+                                onChange={(event) => handleSceneChange(index, 'narration', event.target.value)}
+                                rows={3}
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="text-xs font-medium text-slate-700">
+                              Caption
+                              <input
+                                value={scene.caption}
+                                onChange={(event) => handleSceneChange(index, 'caption', event.target.value)}
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="text-xs font-medium text-slate-700">
+                              Overlay style
+                              <select
+                                value={scene.overlay_style}
+                                onChange={(event) => handleSceneChange(index, 'overlay_style', event.target.value)}
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              >
+                                <option value="hook">Hook</option>
+                                <option value="main">Main</option>
+                                <option value="cta">CTA</option>
+                              </select>
+                            </label>
+                            <label className="text-xs font-medium text-slate-700">
+                              Visual query
+                              <input
+                                value={scene.visual_query}
+                                onChange={(event) => handleSceneChange(index, 'visual_query', event.target.value)}
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="text-xs font-medium text-slate-700">
+                              Scene length (sec)
+                              <input
+                                type="number"
+                                min={1}
+                                value={scene.duration_sec}
+                                onChange={(event) => handleSceneChange(index, 'duration_sec', Number(event.target.value) || 1)}
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </label>
+                          </div>
+
+                          <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3">
+                            <div className="mb-2">
+                              <h6 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Manual media replacement</h6>
+                              <p className="text-xs text-slate-500">Paste your own image/video URL or local path and rerun from the timeline.</p>
+                            </div>
+                            {asset && draft ? (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <label className="text-xs font-medium text-slate-700">
+                                  Media type
+                                  <select
+                                    value={draft.type}
+                                    onChange={(event) => handleMediaDraftChange(asset.id, 'type', event.target.value)}
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  >
+                                    <option value="video">Video</option>
+                                    <option value="image">Image</option>
+                                  </select>
+                                </label>
+                                <label className="text-xs font-medium text-slate-700">
+                                  Provider label
+                                  <input
+                                    value={draft.provider}
+                                    onChange={(event) => handleMediaDraftChange(asset.id, 'provider', event.target.value)}
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  />
+                                </label>
+                                <label className="text-xs font-medium text-slate-700 md:col-span-2">
+                                  Media URL or local path
+                                  <input
+                                    value={draft.url}
+                                    onChange={(event) => handleMediaDraftChange(asset.id, 'url', event.target.value)}
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  />
+                                </label>
+                                <label className="text-xs font-medium text-slate-700 md:col-span-2">
+                                  Prepared storage path (optional)
+                                  <input
+                                    value={draft.storage_path}
+                                    onChange={(event) => handleMediaDraftChange(asset.id, 'storage_path', event.target.value)}
+                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  />
+                                </label>
+                                <div className="md:col-span-2 text-[11px] text-slate-500">
+                                  Current asset: {renderInlineValue(asset.url || asset.storage_path)}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500">Media will appear here after the search step completes.</p>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <StepActionButton label={savingScript ? 'Saving…' : 'Save script edits'} onClick={() => void handleSaveScript()} disabled={isWorking} tone="primary" />
+                    <StepActionButton label={savingMedia ? 'Saving media…' : 'Save media overrides'} onClick={() => void handleSaveMedia()} disabled={isWorking || mediaAssets.length === 0} />
+                    <StepActionButton label="Reset editor" onClick={resetEditorFromOutputs} disabled={isWorking} />
+                    <StepActionButton label={rerunningStep === 'script' ? 'Queueing…' : 'Rerun from script'} onClick={() => void handleRerunStep('script')} disabled={isWorking} />
+                    <StepActionButton label={rerunningStep === 'preview' ? 'Queueing…' : 'Render preview'} onClick={() => void handleRerunStep('preview')} disabled={isWorking} />
+                    <StepActionButton label={rerunningStep === 'final' ? 'Queueing…' : 'Render final'} onClick={() => void handleRerunStep('final')} disabled={isWorking} />
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-600">Open the editor to review the script before the next render, adjust each scene, replace media manually, and tune caption styling.</p>
+              )}
+            </OutputSection>
+          )}
 
           <OutputSection
             title="0. Source material"
             subtitle={sourceAssets.length > 0 ? 'Reference URLs, fetched webpage text, and video transcripts' : 'No source material provided'}
             ready={sourceAssets.length > 0 || hasReachedStage(currentStage, 'source_fetch', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'source' ? 'Queueing…' : 'Refetch'} onClick={() => void handleRerunStep('source')} disabled={isWorking} />}
           >
             {sourceAssets.length > 0 ? (
               <div className="space-y-2">
@@ -364,6 +937,11 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                   const fetchError = getMetadataValue(asset.metadata, 'fetch_error')
                   const contentText = getMetadataValue(asset.metadata, 'content_text')
                   const transcriptText = getMetadataValue(asset.metadata, 'transcript_text')
+                  const transcriptSource = getMetadataValue(asset.metadata, 'transcript_source')
+                  const groundingQuality = getMetadataValue(asset.metadata, 'grounding_quality')
+                  const groundingFacts = Array.isArray(getMetadataObject(asset.metadata).grounding_facts)
+                    ? (getMetadataObject(asset.metadata).grounding_facts as unknown[]).map((value) => String(value))
+                    : []
                   return (
                     <div key={asset.id} className="rounded bg-white p-2 text-xs text-slate-700">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -377,6 +955,8 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                       </div>
                       {asset.url && <div><strong>Link:</strong> {renderInlineValue(asset.url)}</div>}
                       {title && <div className="mt-1"><strong>Title:</strong> {title}</div>}
+                      {groundingQuality && <div className="mt-1"><strong>Grounding quality:</strong> {groundingQuality}</div>}
+                      {transcriptSource && <div className="mt-1"><strong>Transcript source:</strong> {transcriptSource}</div>}
                       {noteText && <p className="mt-1 whitespace-pre-wrap text-slate-600">{noteText}</p>}
                       {contentText && (
                         <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
@@ -388,6 +968,16 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
                         <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
                           <summary className="cursor-pointer font-semibold text-slate-700">Fetched video transcript</summary>
                           <p className="mt-2 whitespace-pre-wrap text-slate-600">{transcriptText}</p>
+                        </details>
+                      )}
+                      {groundingFacts.length > 0 && (
+                        <details className="mt-2 rounded border border-slate-200 bg-slate-50 p-2">
+                          <summary className="cursor-pointer font-semibold text-slate-700">Grounded facts extracted</summary>
+                          <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-600">
+                            {groundingFacts.map((fact, index) => (
+                              <li key={`${asset.id}-fact-${index}`}>{fact}</li>
+                            ))}
+                          </ul>
                         </details>
                       )}
                       {fetchError && <p className="mt-2 text-red-600">{fetchError}</p>}
@@ -404,6 +994,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="1. Script generation"
             subtitle={script ? 'Structured script JSON is available' : 'Waiting for script output'}
             ready={!!script}
+            actions={<StepActionButton label={rerunningStep === 'script' ? 'Queueing…' : 'Rerun'} onClick={() => void handleRerunStep('script')} disabled={isWorking} />}
           >
             {script ? (
               <div className="space-y-2">
@@ -423,6 +1014,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="2. Script validation"
             subtitle="Moderation / validation step status"
             ready={hasReachedStage(currentStage, 'script_validation', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'script' ? 'Queueing…' : 'Run again'} onClick={() => void handleRerunStep('script')} disabled={isWorking} />}
           >
             <p className="text-xs text-slate-700">
               {isFailed && currentStage === 'script_validation'
@@ -439,6 +1031,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="3. Media search"
             subtitle="Image and video assets found for each scene"
             ready={mediaAssets.length > 0 || hasReachedStage(currentStage, 'media_search', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'media' ? 'Queueing…' : 'Rerun'} onClick={() => void handleRerunStep('media')} disabled={isWorking} />}
           >
             {mediaAssets.length > 0 ? (
               <div className="space-y-2">
@@ -466,6 +1059,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="4. Media preparation"
             subtitle="Prepared file paths and metadata for rendering"
             ready={hasReachedStage(currentStage, 'media_prepare', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'media_prepare' ? 'Queueing…' : 'Rerun prep'} onClick={() => void handleRerunStep('media_prepare')} disabled={isWorking} />}
           >
             {mediaAssets.length > 0 ? (
               <div className="space-y-2">
@@ -489,6 +1083,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="5. Voice generation"
             subtitle="Voiceover audio created from the script narration"
             ready={voiceTracks.length > 0 || hasReachedStage(currentStage, 'voice_generation', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'voice' ? 'Queueing…' : 'Regenerate'} onClick={() => void handleRerunStep('voice')} disabled={isWorking} />}
           >
             {voiceTracks.length > 0 ? (
               <div className="space-y-2">
@@ -535,6 +1130,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="6. Subtitle generation"
             subtitle="Phrase-based caption output"
             ready={subtitles.length > 0 || hasReachedStage(currentStage, 'subtitle_generation', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'subtitles' ? 'Queueing…' : 'Regenerate'} onClick={() => void handleRerunStep('subtitles')} disabled={isWorking} />}
           >
             {subtitles.length > 0 ? (
               <div className="space-y-2">
@@ -555,6 +1151,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="7. Music selection"
             subtitle="Background track selected for the video"
             ready={musicTracks.length > 0 || hasReachedStage(currentStage, 'music_selection', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'music' ? 'Queueing…' : 'Reselect'} onClick={() => void handleRerunStep('music')} disabled={isWorking} />}
           >
             {musicTracks.length > 0 ? (
               <div className="space-y-2">
@@ -575,6 +1172,7 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="8. Timeline build"
             subtitle="Render manifest created from script + media + audio"
             ready={!!manifestAsset || hasReachedStage(currentStage, 'timeline_build', currentStatus)}
+            actions={<StepActionButton label={rerunningStep === 'timeline' ? 'Queueing…' : 'Rebuild'} onClick={() => void handleRerunStep('timeline')} disabled={isWorking} />}
           >
             {manifestAsset ? (
               <div className="space-y-2">
@@ -592,6 +1190,12 @@ export function ProjectCard({ project, onGenerate, onDelete, isGenerating }: Pro
             title="9. Render outputs"
             subtitle="Preview/final video render status and output files"
             ready={displayRenders.length > 0 || hasReachedStage(currentStage, 'render_preview', currentStatus)}
+            actions={
+              <>
+                <StepActionButton label={rerunningStep === 'preview' ? 'Queueing…' : 'Preview'} onClick={() => void handleRerunStep('preview')} disabled={isWorking} />
+                <StepActionButton label={rerunningStep === 'final' ? 'Queueing…' : 'Final'} onClick={() => void handleRerunStep('final')} disabled={isWorking} />
+              </>
+            }
           >
             {displayRenders.length > 0 ? (
               <div className="space-y-2">

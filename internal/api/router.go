@@ -83,8 +83,20 @@ func NewRouter(database *db.DB, orch *orchestrator.Orchestrator) http.Handler {
 					}
 				}
 			case "assets":
-				if r.Method == http.MethodGet {
+				if len(parts) == 3 {
+					if r.Method == http.MethodPut {
+						projects.UpdateAsset(w, r)
+					} else {
+						writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+					}
+				} else if r.Method == http.MethodGet {
 					projects.GetAssets(w, r)
+				} else {
+					writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+				}
+			case "steps":
+				if len(parts) == 4 && parts[3] == "rerun" && r.Method == http.MethodPost {
+					projects.RerunStep(w, r)
 				} else {
 					writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 				}

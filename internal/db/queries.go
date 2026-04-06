@@ -109,11 +109,11 @@ func (db *DB) GetScript(ctx context.Context, projectID uuid.UUID) (*Script, erro
 	return s, nil
 }
 
-// UpdateScript updates the content JSON of the latest script for a project.
-func (db *DB) UpdateScript(ctx context.Context, projectID uuid.UUID, contentJSON []byte) error {
-	q := `UPDATE scripts SET content_json=$2
+// UpdateScript updates the latest script record for a project.
+func (db *DB) UpdateScript(ctx context.Context, projectID uuid.UUID, title, hook, cta, language string, contentJSON []byte) error {
+	q := `UPDATE scripts SET title=$2, hook=$3, cta=$4, language=$5, content_json=$6
 		WHERE id=(SELECT id FROM scripts WHERE project_id=$1 ORDER BY created_at DESC LIMIT 1)`
-	_, err := db.ExecContext(ctx, q, projectID, contentJSON)
+	_, err := db.ExecContext(ctx, q, projectID, title, hook, cta, language, contentJSON)
 	return err
 }
 
@@ -159,6 +159,17 @@ func (db *DB) CreateAsset(ctx context.Context, a *Asset) error {
 func (db *DB) UpdateAssetMetadata(ctx context.Context, id uuid.UUID, metadata []byte) error {
 	q := `UPDATE assets SET metadata=$2 WHERE id=$1`
 	_, err := db.ExecContext(ctx, q, id, metadata)
+	return err
+}
+
+// UpdateAsset updates the editable fields for an asset.
+func (db *DB) UpdateAsset(ctx context.Context, a *Asset) error {
+	q := `UPDATE assets
+		SET type=$3, provider=$4, url=$5, storage_path=$6, mime_type=$7, metadata=$8
+		WHERE id=$1 AND project_id=$2`
+	_, err := db.ExecContext(ctx, q,
+		a.ID, a.ProjectID, a.Type, a.Provider, a.URL, a.StoragePath, a.MimeType, a.Metadata,
+	)
 	return err
 }
 

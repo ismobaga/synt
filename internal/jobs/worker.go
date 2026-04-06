@@ -362,6 +362,9 @@ func (w *Worker) handleTimelineBuild(ctx context.Context, j *db.Job) error {
 	if err := w.render.BuildTimeline(ctx, j.ProjectID); err != nil {
 		return err
 	}
+	if !shouldAutoRender(j.Payload) {
+		return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageTimelineBuild, "")
+	}
 	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeRenderPreview, j.Payload)
 }
 
@@ -369,6 +372,9 @@ func (w *Worker) handleRenderPreview(ctx context.Context, j *db.Job) error {
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageRenderPreview, "")
 	if err := w.render.RenderPreview(ctx, j.ProjectID); err != nil {
 		return err
+	}
+	if !shouldAutoRender(j.Payload) {
+		return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageRenderPreview, "")
 	}
 	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeRenderFinal, j.Payload)
 }
@@ -413,14 +419,26 @@ func sourceMaterialContextFromAssets(assets []*db.Asset) ([]string, string) {
 				continue
 			}
 			var payload struct {
-				Title       string `json:"title"`
-				ContentText string `json:"content_text"`
-				Transcript  string `json:"transcript_text"`
-				FetchStatus string `json:"fetch_status"`
+				Title            string   `json:"title"`
+				ContentText      string   `json:"content_text"`
+				Transcript       string   `json:"transcript_text"`
+				FetchStatus      string   `json:"fetch_status"`
+				TranscriptSource string   `json:"transcript_source"`
+				GroundingQuality string   `json:"grounding_quality"`
+				GroundingFacts   []string `json:"grounding_facts"`
 			}
 			if err := json.Unmarshal(asset.Metadata, &payload); err == nil {
 				if title := strings.TrimSpace(payload.Title); title != "" {
 					notes = append(notes, "Source title: "+title)
+				}
+				if quality := strings.TrimSpace(payload.GroundingQuality); quality != "" {
+					notes = append(notes, "Grounding quality: "+quality)
+				}
+				if source := strings.TrimSpace(payload.TranscriptSource); source != "" {
+					notes = append(notes, "Transcript source: "+source)
+				}
+				if len(payload.GroundingFacts) > 0 {
+					notes = append(notes, "Grounded facts:\n- "+strings.Join(payload.GroundingFacts, "\n- "))
 				}
 				if excerpt := promptExcerpt(payload.ContentText, 1800); excerpt != "" {
 					notes = append(notes, "Fetched source excerpt: "+excerpt)
@@ -493,6 +511,15 @@ func mergeSourceAssetMetadata(existing []byte, result *source.Result, fetchErr e
 		if result.Transcript != "" {
 			payload["transcript_text"] = result.Transcript
 		}
+		if result.TranscriptSource != "" {
+			payload["transcript_source"] = result.TranscriptSource
+		}
+		if result.GroundingQuality != "" {
+			payload["grounding_quality"] = result.GroundingQuality
+		}
+		if len(result.Facts) > 0 {
+			payload["grounding_facts"] = result.Facts
+		}
 	}
 	metadata, err := json.Marshal(payload)
 	if err != nil {
@@ -511,6 +538,19 @@ func promptExcerpt(value string, maxLen int) string {
 		return trimmed
 	}
 	return string(runes[:maxLen]) + "…"
+}
+
+func shouldAutoRender(payload []byte) bool {
+	if len(payload) == 0 {
+		return true
+	}
+	var request struct {
+		AutoRender *bool `json:"auto_render"`
+	}
+	if err := json.Unmarshal(payload, &request); err != nil || request.AutoRender == nil {
+		return true
+	}
+	return *request.AutoRender
 }
 
 func stageForJobType(jobType string) string {

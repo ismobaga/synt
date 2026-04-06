@@ -261,7 +261,7 @@ func buildFFmpegCommand(assets []*db.Asset, tracks []*db.AudioTrack, subtitles [
 	}
 
 	if plan.SubtitlePath != "" {
-		filterParts = append(filterParts, fmt.Sprintf("[vcat]subtitles='%s'[vout]", escapeFFmpegPath(plan.SubtitlePath)))
+		filterParts = append(filterParts, fmt.Sprintf("[vcat]%s[vout]", buildSubtitleFilter(plan.SubtitlePath, plan.SubtitleStyle)))
 	} else {
 		filterParts = append(filterParts, "[vcat]null[vout]")
 	}
@@ -320,6 +320,7 @@ type renderPlan struct {
 	VoicePath     string
 	MusicPath     string
 	SubtitlePath  string
+	SubtitleStyle api.SubtitleStyle
 	MusicVolume   float64
 	TotalDuration float64
 }
@@ -364,6 +365,7 @@ func buildRenderPlan(assets []*db.Asset, tracks []*db.AudioTrack, subtitles []*d
 		if manifest.Music.Volume > 0 {
 			plan.MusicVolume = manifest.Music.Volume
 		}
+		plan.SubtitleStyle = manifest.SubtitleStyle
 	}
 
 	if len(plan.Scenes) == 0 {
@@ -464,6 +466,59 @@ func escapeFFmpegPath(path string) string {
 	return replacer.Replace(path)
 }
 
+func buildSubtitleFilter(path string, style api.SubtitleStyle) string {
+	filter := fmt.Sprintf("subtitles='%s'", escapeFFmpegPath(path))
+	fontSize := style.FontSize
+	if fontSize <= 0 {
+		switch strings.ToLower(strings.TrimSpace(style.Preset)) {
+		case "bold", "hook":
+			fontSize = 18
+		default:
+			fontSize = 14
+		}
+	}
+	outline := 2
+	if strings.EqualFold(strings.TrimSpace(style.Preset), "minimal") || strings.EqualFold(strings.TrimSpace(style.Preset), "clean") {
+		outline = 1
+	}
+	styleParts := []string{
+		fmt.Sprintf("Alignment=%d", subtitleAlignment(style.Position)),
+		fmt.Sprintf("Fontsize=%d", fontSize),
+		fmt.Sprintf("Outline=%d", outline),
+		"Shadow=0",
+		"BorderStyle=1",
+	}
+	if style.Bold {
+		styleParts = append(styleParts, "Bold=1")
+	}
+	if color := assColorFromHex(style.PrimaryColor); color != "" {
+		styleParts = append(styleParts, "PrimaryColour="+color)
+	}
+	if color := assColorFromHex(style.OutlineColor); color != "" {
+		styleParts = append(styleParts, "OutlineColour="+color)
+	}
+	return filter + ":force_style='" + strings.Join(styleParts, ",") + "'"
+}
+
+func subtitleAlignment(position string) int {
+	switch strings.ToLower(strings.TrimSpace(position)) {
+	case "top":
+		return 8
+	case "center", "middle":
+		return 5
+	default:
+		return 2
+	}
+}
+
+func assColorFromHex(value string) string {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(value), "#")
+	if len(trimmed) != 6 {
+		return ""
+	}
+	return "&H00" + strings.ToUpper(trimmed[4:6]+trimmed[2:4]+trimmed[0:2]) + "&"
+}
+
 func parseResolution(res string) (int, int) {
 	// Formats: "1080x1920", "720x1280"
 	var w, h int
@@ -496,26 +551,42 @@ func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTr
 		DurationSec:  float64(project.DurationSec),
 		Template:     project.TemplateID,
 		RenderEngine: renderEngineForTemplate(project.TemplateID),
+		SubtitleStyle: api.SubtitleStyle{
+			Preset:       "clean",
+			Position:     "bottom",
+			FontSize:     14,
+			PrimaryColor: "#FFFFFF",
+			OutlineColor: "#111827",
+		},
 	}
 
-	// Parse scenes from script
-	var sc struct {
-		Scenes []struct {
-			Index       int     `json:"index"`
-			DurationSec float64 `json:"duration_sec"`
-			Caption     string  `json:"caption"`
-			Narration   string  `json:"narration"`
-		} `json:"scenes"`
-	}
+	var sc api.ScriptContent
 	_ = json.Unmarshal(script.ContentJSON, &sc)
+	if sc.SubtitleStyle.Preset != "" {
+		manifest.SubtitleStyle.Preset = sc.SubtitleStyle.Preset
+	}
+	if sc.SubtitleStyle.Position != "" {
+		manifest.SubtitleStyle.Position = sc.SubtitleStyle.Position
+	}
+	if sc.SubtitleStyle.FontSize > 0 {
+		manifest.SubtitleStyle.FontSize = sc.SubtitleStyle.FontSize
+	}
+	if sc.SubtitleStyle.PrimaryColor != "" {
+		manifest.SubtitleStyle.PrimaryColor = sc.SubtitleStyle.PrimaryColor
+	}
+	if sc.SubtitleStyle.OutlineColor != "" {
+		manifest.SubtitleStyle.OutlineColor = sc.SubtitleStyle.OutlineColor
+	}
+	manifest.SubtitleStyle.Bold = sc.SubtitleStyle.Bold
 
 	mediaAssets := filterRenderableAssets(assets)
 	var cursor float64
 	for i, scene := range sc.Scenes {
+		durationSec := normalizeDuration(float64(scene.DurationSec), 5)
 		ms := &api.ManifestScene{
 			Index:         scene.Index,
 			StartSec:      cursor,
-			EndSec:        cursor + scene.DurationSec,
+			EndSec:        cursor + durationSec,
 			TransitionOut: "quick_fade",
 		}
 		// Attach media
@@ -540,12 +611,17 @@ func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTr
 		if scene.Caption != "" {
 			ms.Captions = append(ms.Captions, api.ManifestCaption{
 				StartSec: cursor + 0.2,
-				EndSec:   cursor + scene.DurationSec - 0.2,
+				EndSec:   cursor + durationSec - 0.2,
 				Text:     scene.Caption,
+			})
+			ms.TextOverlays = append(ms.TextOverlays, api.ManifestTextOverlay{
+				Text:     scene.Caption,
+				Position: manifest.SubtitleStyle.Position,
+				Style:    scene.OverlayStyle,
 			})
 		}
 		manifest.Scenes = append(manifest.Scenes, *ms)
-		cursor += scene.DurationSec
+		cursor += durationSec
 	}
 
 	// Music

@@ -344,11 +344,150 @@ func (h *ProjectHandler) UpdateScript(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid script content")
 		return
 	}
-	if err := h.db.UpdateScript(r.Context(), uid, contentJSON); err != nil {
+	if err := h.db.UpdateScript(r.Context(), uid, req.Content.Title, req.Content.Hook, req.Content.CTA, req.Content.Language, contentJSON); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update script")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func mimeTypeForAssetType(assetType string) string {
+	switch strings.ToLower(strings.TrimSpace(assetType)) {
+	case "video":
+		return "video/mp4"
+	case "image":
+		return "image/jpeg"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// UpdateAsset handles PUT /v1/projects/:id/assets/:assetId.
+func (h *ProjectHandler) UpdateAsset(w http.ResponseWriter, r *http.Request) {
+	projectID, err := uuid.Parse(pathParam(r, "projects"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	assetID, err := uuid.Parse(pathParam(r, "assets"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid asset id")
+		return
+	}
+
+	var req UpdateAssetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	assets, err := h.db.GetAssets(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load assets")
+		return
+	}
+
+	var current *db.Asset
+	for _, asset := range assets {
+		if asset != nil && asset.ID == assetID {
+			current = asset
+			break
+		}
+	}
+	if current == nil {
+		writeError(w, http.StatusNotFound, "asset not found")
+		return
+	}
+
+	if value := strings.TrimSpace(req.Type); value != "" {
+		current.Type = value
+	}
+	if value := strings.TrimSpace(req.Provider); value != "" {
+		current.Provider = value
+	}
+	if value := strings.TrimSpace(req.URL); value != "" {
+		current.URL = value
+		if strings.TrimSpace(req.StoragePath) == "" {
+			current.StoragePath = value
+		}
+	}
+	if value := strings.TrimSpace(req.StoragePath); value != "" {
+		current.StoragePath = value
+	}
+	if value := strings.TrimSpace(req.MimeType); value != "" {
+		current.MimeType = value
+	} else if strings.TrimSpace(current.MimeType) == "" {
+		current.MimeType = mimeTypeForAssetType(current.Type)
+	}
+	if req.Metadata != nil {
+		metadata, err := json.Marshal(req.Metadata)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid metadata")
+			return
+		}
+		current.Metadata = metadata
+	}
+
+	if err := h.db.UpdateAsset(r.Context(), current); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update asset")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func rerunJobType(step string) (string, string, error) {
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "source", "sources", "source_fetch":
+		return db.JobTypeSourceFetch, db.StageSourceFetch, nil
+	case "script", "script_generation":
+		return db.JobTypeScriptGenerate, db.StageScriptGeneration, nil
+	case "validate", "script_validation":
+		return db.JobTypeScriptValidate, db.StageScriptValidation, nil
+	case "media", "media_search":
+		return db.JobTypeMediaSearch, db.StageMediaSearch, nil
+	case "media_prepare":
+		return db.JobTypeMediaPrepare, db.StageMediaPrepare, nil
+	case "voice", "voice_generation":
+		return db.JobTypeVoiceGenerate, db.StageVoiceGeneration, nil
+	case "subtitles", "subtitle_generation":
+		return db.JobTypeSubtitleGenerate, db.StageSubtitleGeneration, nil
+	case "music", "music_selection":
+		return db.JobTypeMusicSelect, db.StageMusicSelection, nil
+	case "timeline", "timeline_build":
+		return db.JobTypeTimelineBuild, db.StageTimelineBuild, nil
+	case "preview", "render_preview":
+		return db.JobTypeRenderPreview, db.StageRenderPreview, nil
+	case "final", "render_final":
+		return db.JobTypeRenderFinal, db.StageRenderFinal, nil
+	default:
+		return "", "", http.ErrNotSupported
+	}
+}
+
+// RerunStep handles POST /v1/projects/:id/steps/:step/rerun.
+func (h *ProjectHandler) RerunStep(w http.ResponseWriter, r *http.Request) {
+	projectID, err := uuid.Parse(pathParam(r, "projects"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id")
+		return
+	}
+	step := pathParam(r, "steps")
+	jobType, stage, err := rerunJobType(step)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "unsupported step")
+		return
+	}
+
+	if err := h.db.UpdateProjectStatus(r.Context(), projectID, db.ProjectStatusQueued, stage, ""); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update project status")
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{"auto_render": false, "source": "manual_rerun", "step": step})
+	if err := h.orchestrator.EnqueueJob(r.Context(), projectID, jobType, payload); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to queue step rerun")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "queued", "step": step})
 }
 
 // RegenerateScript handles POST /v1/projects/:id/script/regenerate.

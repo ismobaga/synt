@@ -31,6 +31,7 @@ export interface CreateProjectInput {
   tone: string
   template_id: string
   render_engine?: 'ffmpeg' | 'remotion'
+  auto_render?: boolean
   source_urls?: string[]
   source_notes?: string
 }
@@ -42,6 +43,47 @@ export interface Template {
   config: Record<string, unknown>
 }
 
+export interface SubtitleStyleInput {
+  preset?: string
+  position?: string
+  font_size?: number
+  primary_color?: string
+  outline_color?: string
+  bold?: boolean
+}
+
+export interface ScriptSceneInput {
+  index: number
+  duration_sec: number
+  narration: string
+  caption: string
+  visual_query: string
+  overlay_style: string
+}
+
+export interface UpdateScriptInput {
+  title: string
+  hook: string
+  duration_sec: number
+  language: string
+  cta: string
+  music_mood?: string
+  subtitle_style?: SubtitleStyleInput
+  scenes: ScriptSceneInput[]
+}
+
+export type RerunStep =
+  | 'source'
+  | 'script'
+  | 'media'
+  | 'media_prepare'
+  | 'voice'
+  | 'subtitles'
+  | 'music'
+  | 'timeline'
+  | 'preview'
+  | 'final'
+
 export interface ScriptRecord {
   id: string
   project_id: string
@@ -51,6 +93,15 @@ export interface ScriptRecord {
   language: string
   content_json: unknown
   created_at: string
+}
+
+export interface UpdateAssetInput {
+  type?: string
+  provider?: string
+  url?: string
+  storage_path?: string
+  mime_type?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface AssetRecord {
@@ -166,6 +217,15 @@ export const api = {
         ...script,
         content_json: decodeMaybeBase64JSON(script.content_json),
       })),
+    updateScript: (id: string, content: UpdateScriptInput) =>
+      request<void>(`/v1/projects/${id}/script`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+    rerunStep: (id: string, step: RerunStep) =>
+      request<{ status: string; step: string }>(`/v1/projects/${id}/steps/${step}/rerun`, {
+        method: 'POST',
+      }),
     getAssets: (id: string) =>
       request<AssetRecord[]>(`/v1/projects/${id}/assets`).then((assets) =>
         assets.map((asset) => ({
@@ -174,6 +234,11 @@ export const api = {
           metadata: decodeMaybeBase64JSON(asset.metadata),
         }))
       ),
+    updateAsset: (projectId: string, assetId: string, data: UpdateAssetInput) =>
+      request<{ status: string }>(`/v1/projects/${projectId}/assets/${assetId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
     getAudio: (id: string) =>
       request<AudioTrackRecord[]>(`/v1/projects/${id}/audio`).then((tracks) =>
         tracks.map((track) => ({

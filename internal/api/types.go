@@ -53,20 +53,41 @@ type SceneContent struct {
 	OverlayStyle string `json:"overlay_style"`
 }
 
+// SubtitleStyle controls the rendered subtitle appearance.
+type SubtitleStyle struct {
+	Preset       string `json:"preset,omitempty"`
+	Position     string `json:"position,omitempty"`
+	FontSize     int    `json:"font_size,omitempty"`
+	PrimaryColor string `json:"primary_color,omitempty"`
+	OutlineColor string `json:"outline_color,omitempty"`
+	Bold         bool   `json:"bold,omitempty"`
+}
+
 // ScriptContent is the structured JSON output from the content service.
 type ScriptContent struct {
-	Title       string         `json:"title"`
-	Hook        string         `json:"hook"`
-	DurationSec int            `json:"duration_sec"`
-	Language    string         `json:"language"`
-	CTA         string         `json:"cta"`
-	MusicMood   string         `json:"music_mood"`
-	Scenes      []SceneContent `json:"scenes"`
+	Title         string         `json:"title"`
+	Hook          string         `json:"hook"`
+	DurationSec   int            `json:"duration_sec"`
+	Language      string         `json:"language"`
+	CTA           string         `json:"cta"`
+	MusicMood     string         `json:"music_mood"`
+	SubtitleStyle SubtitleStyle  `json:"subtitle_style,omitempty"`
+	Scenes        []SceneContent `json:"scenes"`
 }
 
 // UpdateScriptRequest is the request body for PUT /v1/projects/:id/script.
 type UpdateScriptRequest struct {
 	Content ScriptContent `json:"content"`
+}
+
+// UpdateAssetRequest is the request body for PUT /v1/projects/:id/assets/:assetId.
+type UpdateAssetRequest struct {
+	Type        string         `json:"type,omitempty"`
+	Provider    string         `json:"provider,omitempty"`
+	URL         string         `json:"url,omitempty"`
+	StoragePath string         `json:"storage_path,omitempty"`
+	MimeType    string         `json:"mime_type,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 // ErrorResponse is a standard error envelope.
@@ -91,15 +112,16 @@ type RenderRequest struct {
 
 // TimelineManifest is the JSON manifest for the render engine.
 type TimelineManifest struct {
-	ProjectID    string             `json:"project_id"`
-	Resolution   ManifestResolution `json:"resolution"`
-	FPS          int                `json:"fps"`
-	DurationSec  float64            `json:"duration_sec"`
-	Template     string             `json:"template"`
-	RenderEngine string             `json:"render_engine,omitempty"`
-	Scenes       []ManifestScene    `json:"scenes"`
-	Music        ManifestMusic      `json:"music"`
-	Branding     ManifestBranding   `json:"branding"`
+	ProjectID     string             `json:"project_id"`
+	Resolution    ManifestResolution `json:"resolution"`
+	FPS           int                `json:"fps"`
+	DurationSec   float64            `json:"duration_sec"`
+	Template      string             `json:"template"`
+	RenderEngine  string             `json:"render_engine,omitempty"`
+	SubtitleStyle SubtitleStyle      `json:"subtitle_style,omitempty"`
+	Scenes        []ManifestScene    `json:"scenes"`
+	Music         ManifestMusic      `json:"music"`
+	Branding      ManifestBranding   `json:"branding"`
 }
 
 // ManifestResolution holds video resolution.

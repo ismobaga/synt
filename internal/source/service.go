@@ -13,6 +13,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,17 +35,21 @@ var (
 
 // Result holds fetched reference content for a source URL.
 type Result struct {
-	URL        string    `json:"url"`
-	Provider   string    `json:"provider"`
-	Title      string    `json:"title,omitempty"`
-	Content    string    `json:"content,omitempty"`
-	Transcript string    `json:"transcript,omitempty"`
-	FetchedAt  time.Time `json:"fetched_at"`
+	URL              string    `json:"url"`
+	Provider         string    `json:"provider"`
+	Title            string    `json:"title,omitempty"`
+	Content          string    `json:"content,omitempty"`
+	Transcript       string    `json:"transcript,omitempty"`
+	TranscriptSource string    `json:"transcript_source,omitempty"`
+	GroundingQuality string    `json:"grounding_quality,omitempty"`
+	Facts            []string  `json:"facts,omitempty"`
+	FetchedAt        time.Time `json:"fetched_at"`
 }
 
 // Service fetches webpage content and YouTube transcripts.
 type Service struct {
-	client *http.Client
+	client        *http.Client
+	commandRunner func(context.Context, string, ...string) ([]byte, error)
 }
 
 // New creates a new source fetching service.
@@ -50,7 +57,15 @@ func New(client *http.Client) *Service {
 	if client == nil {
 		client = &http.Client{Timeout: 20 * time.Second}
 	}
-	return &Service{client: client}
+	return &Service{
+		client:        client,
+		commandRunner: runCommand,
+	}
+}
+
+func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
 }
 
 // Fetch loads reference content from either a webpage or YouTube video.
@@ -76,11 +91,13 @@ func (s *Service) fetchWebpage(ctx context.Context, rawURL string) (*Result, err
 		return nil, fmt.Errorf("webpage content was empty")
 	}
 	return &Result{
-		URL:       rawURL,
-		Provider:  "webpage",
-		Title:     title,
-		Content:   content,
-		FetchedAt: time.Now().UTC(),
+		URL:              rawURL,
+		Provider:         "webpage",
+		Title:            title,
+		Content:          content,
+		GroundingQuality: "webpage_text",
+		Facts:            buildGroundingFacts(title, content, 6),
+		FetchedAt:        time.Now().UTC(),
 	}, nil
 }
 
@@ -95,26 +112,32 @@ func (s *Service) fetchYouTube(ctx context.Context, rawURL string) (*Result, err
 		return nil, err
 	}
 	title := extractHTMLTitle(body)
-	transcript, transcriptErr := s.fetchYouTubeTranscript(ctx, body)
+	transcript, transcriptSource, transcriptErr := s.fetchYouTubeTranscript(ctx, rawURL, body)
 	if transcript != "" {
 		return &Result{
-			URL:        rawURL,
-			Provider:   "youtube",
-			Title:      title,
-			Content:    transcript,
-			Transcript: transcript,
-			FetchedAt:  time.Now().UTC(),
+			URL:              rawURL,
+			Provider:         "youtube",
+			Title:            title,
+			Content:          transcript,
+			Transcript:       transcript,
+			TranscriptSource: transcriptSource,
+			GroundingQuality: "transcript",
+			Facts:            buildGroundingFacts(title, transcript, 8),
+			FetchedAt:        time.Now().UTC(),
 		}, nil
 	}
 
 	fallbackContent := excerptText(extractYouTubeFallbackContent(body), 4000)
 	if fallbackContent != "" {
 		return &Result{
-			URL:       rawURL,
-			Provider:  "youtube",
-			Title:     title,
-			Content:   fallbackContent,
-			FetchedAt: time.Now().UTC(),
+			URL:              rawURL,
+			Provider:         "youtube",
+			Title:            title,
+			Content:          fallbackContent,
+			TranscriptSource: "page_description",
+			GroundingQuality: "fallback_description",
+			Facts:            buildGroundingFacts(title, fallbackContent, 6),
+			FetchedAt:        time.Now().UTC(),
 		}, nil
 	}
 	if transcriptErr != nil {
@@ -280,6 +303,18 @@ type youtubeCaptionTrack struct {
 	LanguageCode string `json:"languageCode"`
 }
 
+type ytDLPSubtitleTrack struct {
+	Ext string `json:"ext"`
+	URL string `json:"url"`
+}
+
+type ytDLPInfo struct {
+	Title             string                          `json:"title"`
+	Description       string                          `json:"description"`
+	Subtitles         map[string][]ytDLPSubtitleTrack `json:"subtitles"`
+	AutomaticCaptions map[string][]ytDLPSubtitleTrack `json:"automatic_captions"`
+}
+
 func extractYouTubeCaptionTrackURL(body string) string {
 	match := captionTracksPattern.FindStringSubmatch(body)
 	if len(match) < 2 {
@@ -330,11 +365,25 @@ type jsonTranscriptDocument struct {
 	} `json:"events"`
 }
 
-func (s *Service) fetchYouTubeTranscript(ctx context.Context, watchPage string) (string, error) {
+func (s *Service) fetchYouTubeTranscript(ctx context.Context, rawURL, watchPage string) (string, string, error) {
 	captionURL := extractYouTubeCaptionTrackURL(watchPage)
-	if captionURL == "" {
-		return "", fmt.Errorf("youtube transcript track unavailable")
+	if captionURL != "" {
+		if transcript, err := s.fetchTranscriptFromCaptionURL(ctx, captionURL); err == nil && transcript != "" {
+			return transcript, "youtube_captions", nil
+		}
 	}
+
+	transcript, err := s.fetchYouTubeTranscriptWithYTDLP(ctx, rawURL)
+	if err == nil && transcript != "" {
+		return transcript, "yt-dlp", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return "", "", fmt.Errorf("youtube transcript was empty")
+}
+
+func (s *Service) fetchTranscriptFromCaptionURL(ctx context.Context, captionURL string) (string, error) {
 	variants := []string{captionURL}
 	if strings.Contains(captionURL, "fmt=") {
 		variants = append(variants,
@@ -370,6 +419,133 @@ func (s *Service) fetchYouTubeTranscript(ctx context.Context, watchPage string) 
 		return "", lastErr
 	}
 	return "", fmt.Errorf("youtube transcript was empty")
+}
+
+func (s *Service) fetchYouTubeTranscriptWithYTDLP(ctx context.Context, rawURL string) (string, error) {
+	if s.commandRunner == nil {
+		return "", fmt.Errorf("yt-dlp unavailable")
+	}
+
+	tempDir, err := os.MkdirTemp("", "synt-ytdlp-*")
+	if err == nil {
+		defer os.RemoveAll(tempDir)
+		outputTemplate := filepath.Join(tempDir, "%(id)s.%(ext)s")
+		_, _ = s.commandRunner(ctx,
+			"yt-dlp",
+			"--skip-download",
+			"--write-subs",
+			"--write-auto-subs",
+			"--sub-langs", "en.*,.*-en,en,en-orig",
+			"--sub-format", "json3/vtt/best",
+			"--output", outputTemplate,
+			"--no-warnings",
+			"--no-call-home",
+			rawURL,
+		)
+		if transcript := extractTranscriptFromDownloadedFiles(tempDir); transcript != "" {
+			return transcript, nil
+		}
+	}
+
+	output, err := s.commandRunner(ctx, "yt-dlp", "--dump-single-json", "--skip-download", "--no-warnings", "--no-call-home", rawURL)
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		return "", fmt.Errorf("yt-dlp metadata fetch failed: %s", message)
+	}
+
+	var info ytDLPInfo
+	if err := json.Unmarshal(output, &info); err != nil {
+		return "", fmt.Errorf("parse yt-dlp metadata: %w", err)
+	}
+
+	for _, candidateURL := range preferredSubtitleURLs(info.Subtitles, info.AutomaticCaptions) {
+		transcriptBody, err := s.fetchText(ctx, candidateURL)
+		if err != nil {
+			continue
+		}
+		transcript := excerptText(extractYouTubeTranscriptText(transcriptBody), 12000)
+		if transcript != "" {
+			return transcript, nil
+		}
+	}
+	return "", fmt.Errorf("yt-dlp did not expose a usable transcript")
+}
+
+func extractTranscriptFromDownloadedFiles(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, preferredExt := range []string{"json3", "srv3", "ttml", "vtt"} {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), "."+preferredExt) {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			transcript := excerptText(extractYouTubeTranscriptText(string(body)), 12000)
+			if transcript != "" {
+				return transcript
+			}
+		}
+	}
+	return ""
+}
+
+func preferredSubtitleURLs(manual, automatic map[string][]ytDLPSubtitleTrack) []string {
+	urls := make([]string, 0)
+	seen := map[string]bool{}
+	appendTracks := func(groups map[string][]ytDLPSubtitleTrack) {
+		for _, priority := range []int{0, 1, 2} {
+			for lang, tracks := range groups {
+				if subtitleLanguageScore(lang) != priority {
+					continue
+				}
+				if trackURL := chooseSubtitleTrackURL(tracks); trackURL != "" && !seen[trackURL] {
+					seen[trackURL] = true
+					urls = append(urls, trackURL)
+				}
+			}
+		}
+	}
+	appendTracks(manual)
+	appendTracks(automatic)
+	return urls
+}
+
+func subtitleLanguageScore(language string) int {
+	lower := strings.ToLower(strings.TrimSpace(language))
+	switch {
+	case lower == "en", lower == "en-us", lower == "en-gb", lower == "en-orig":
+		return 0
+	case strings.HasPrefix(lower, "en-"), strings.Contains(lower, ".en"), strings.HasSuffix(lower, "-en"), strings.HasSuffix(lower, "_en"):
+		return 1
+	case strings.Contains(lower, "en"):
+		return 2
+	default:
+		return 9
+	}
+}
+
+func chooseSubtitleTrackURL(tracks []ytDLPSubtitleTrack) string {
+	for _, preferredExt := range []string{"json3", "srv3", "ttml", "vtt"} {
+		for _, track := range tracks {
+			if strings.EqualFold(strings.TrimSpace(track.Ext), preferredExt) && strings.TrimSpace(track.URL) != "" {
+				return strings.TrimSpace(track.URL)
+			}
+		}
+	}
+	for _, track := range tracks {
+		if strings.TrimSpace(track.URL) != "" {
+			return strings.TrimSpace(track.URL)
+		}
+	}
+	return ""
 }
 
 func extractYouTubeTranscriptText(body string) string {
@@ -422,6 +598,43 @@ func extractYouTubeTranscriptText(body string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func buildGroundingFacts(title, text string, maxFacts int) []string {
+	if maxFacts <= 0 {
+		maxFacts = 5
+	}
+	facts := make([]string, 0, maxFacts)
+	seen := map[string]bool{}
+	addFact := func(value string) {
+		cleaned := excerptText(strings.Trim(strings.TrimSpace(value), "-•*"), 220)
+		if cleaned == "" {
+			return
+		}
+		key := strings.ToLower(cleaned)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		facts = append(facts, cleaned)
+	}
+
+	if title = strings.TrimSpace(title); title != "" {
+		addFact("Source title: " + title)
+	}
+
+	separators := regexp.MustCompile(`[.!?]+\s+|[\n\r]+`)
+	for _, sentence := range separators.Split(text, -1) {
+		cleaned := whitespacePattern.ReplaceAllString(strings.TrimSpace(sentence), " ")
+		if len(cleaned) < 20 {
+			continue
+		}
+		addFact(cleaned)
+		if len(facts) >= maxFacts {
+			break
+		}
+	}
+	return facts
 }
 
 func excerptText(value string, maxLen int) string {

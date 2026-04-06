@@ -57,12 +57,14 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
     tone: 'educational',
     template_id: templates[0]?.id ?? 'fast_caption_v1',
     render_engine: 'ffmpeg',
+    auto_render: false,
     source_notes: '',
   })
   const [sourceUrlsText, setSourceUrlsText] = useState('')
 
-  const handleChange = (field: keyof CreateProjectInput, value: string | number) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
+  const handleChange = (field: keyof CreateProjectInput, value: string | number | boolean) => {
+    const normalizedValue = field === 'auto_render' ? value === true || value === 'true' : value
+    setForm((prev) => ({ ...prev, [field]: normalizedValue }))
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -259,13 +261,29 @@ export function CreateProjectForm({ templates, onSubmit, loading }: CreateProjec
             </select>
           </div>
 
-          <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-xs text-violet-900">
-            <div className="font-semibold">Current setup</div>
-            <div className="mt-1">
-              {form.duration_sec}s · {form.language.toUpperCase()} · {form.tone} · {(form.render_engine ?? 'ffmpeg') === 'remotion' ? 'Remotion' : 'FFmpeg'}
-            </div>
-            <div className="mt-1 text-violet-700">
-              {sourceUrlsText.trim() ? `${sourceUrlsText.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean).length} source link(s)` : 'No sources attached yet'}
+          <div className="space-y-3">
+            <label className="inline-flex items-start gap-2 rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-xs text-violet-900">
+              <input
+                type="checkbox"
+                checked={form.auto_render !== false}
+                onChange={(e) => handleChange('auto_render', e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-semibold">Auto render after generation</span>
+                <span className="mt-1 block text-violet-700">Turn this off to pause in review mode so you can edit the script, scenes, and media before preview/final render.</span>
+              </span>
+            </label>
+
+            <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-xs text-violet-900">
+              <div className="font-semibold">Current setup</div>
+              <div className="mt-1">
+                {form.duration_sec}s · {form.language.toUpperCase()} · {form.tone} · {(form.render_engine ?? 'ffmpeg') === 'remotion' ? 'Remotion' : 'FFmpeg'}
+              </div>
+              <div className="mt-1 text-violet-700">
+                {sourceUrlsText.trim() ? `${sourceUrlsText.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean).length} source link(s)` : 'No sources attached yet'}
+              </div>
+              <div className="mt-1 text-violet-700">{form.auto_render !== false ? 'Auto-render on' : 'Review mode before render'}</div>
             </div>
           </div>
         </div>

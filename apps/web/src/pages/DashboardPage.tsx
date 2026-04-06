@@ -75,7 +75,7 @@ export function DashboardPage() {
     setError(null)
     try {
       const result = await api.projects.create(data)
-      await api.projects.generate(result.id, true)
+      await api.projects.generate(result.id, data.auto_render !== false)
       await loadData()
       setShowForm(false)
     } catch (err) {
@@ -224,8 +224,8 @@ export function DashboardPage() {
                     key={filter.value}
                     onClick={() => setStatusFilter(filter.value)}
                     className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${statusFilter === filter.value
-                        ? 'bg-violet-600 text-white'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                   >
                     {filter.label} ({count})
@@ -292,6 +292,7 @@ export function DashboardPage() {
                   project={project}
                   onGenerate={handleGenerate}
                   onDelete={handleDelete}
+                  onRefreshProjects={loadData}
                   isGenerating={generating === project.id}
                 />
               ))}

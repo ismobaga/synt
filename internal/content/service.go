@@ -84,6 +84,8 @@ func buildPrompt(req GenerateRequest) string {
 		}
 		lines = append(lines,
 			"Use these sources as guidance for framing and claims.",
+			"Treat grounded facts, extracted excerpts, and transcripts as higher priority than general world knowledge.",
+			"If the source material is partial or only high-level, keep claims high-level too and avoid unsupported numbers or specifics.",
 			"Do not invent specific facts that are not supported by the provided references.",
 		)
 		sourceContext = strings.Join(lines, "\n") + "\n"
