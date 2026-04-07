@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,7 +124,7 @@ func (s *Service) ExtractThumbnail(ctx context.Context, projectID uuid.UUID) err
 		},
 	}
 	if err := s.ffmpeg.Run(ctx, cmd); err != nil {
-		return fmt.Errorf("extract thumbnail: %w", err)
+		return fmt.Errorf("extract thumbnail from %s: %w", inputPath, err)
 	}
 
 	finalPath := finalRender.StoragePath
@@ -146,12 +148,31 @@ func (s *Service) renderAt(ctx context.Context, projectID uuid.UUID, kind, resol
 	if err != nil {
 		return err
 	}
+	assets, err := s.db.GetAssets(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	tracks, err := s.db.GetAudioTracks(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	subtitles, err := s.db.GetSubtitles(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	plan := buildRenderPlan(assets, tracks, subtitles)
 	engine := renderEngineForTemplate(project.TemplateID)
 	renderMetadata, _ := json.Marshal(map[string]any{
-		"renderer":      engine,
-		"template":      project.TemplateID,
-		"template_base": baseTemplateID(project.TemplateID),
-		"composition":   "SyntProgrammaticVideo",
+		"renderer":           engine,
+		"template":           project.TemplateID,
+		"template_base":      baseTemplateID(project.TemplateID),
+		"composition":        "SyntProgrammaticVideo",
+		"scene_count":        len(plan.Scenes),
+		"has_voiceover":      plan.VoicePath != "",
+		"has_music":          plan.MusicPath != "",
+		"has_subtitles":      plan.SubtitlePath != "",
+		"total_duration_sec": plan.TotalDuration,
 	})
 
 	render := &db.Render{
@@ -168,30 +189,21 @@ func (s *Service) renderAt(ctx context.Context, projectID uuid.UUID, kind, resol
 		return err
 	}
 
-	assets, err := s.db.GetAssets(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	tracks, err := s.db.GetAudioTracks(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	subtitles, err := s.db.GetSubtitles(ctx, projectID)
-	if err != nil {
-		return err
-	}
-
-	cmd := buildFFmpegCommand(assets, tracks, subtitles, outputPath, resolution, fps)
+	cmd := buildFFmpegCommandForPlan(plan, outputPath, resolution, fps)
 	if err := s.ffmpeg.Run(ctx, cmd); err != nil {
 		_ = s.db.UpdateRenderStatus(ctx, render.ID, "failed", "", "")
-		return fmt.Errorf("ffmpeg render: %w", err)
+		return fmt.Errorf("%s render failed at %s: %w [plan: %s] [args: %s]", kind, resolution, err, summarizeRenderPlan(plan), truncateForLog(strings.Join(cmd.Args, " "), 900))
+	}
+	if err := validateRenderedOutput(outputPath); err != nil {
+		_ = s.db.UpdateRenderStatus(ctx, render.ID, "failed", "", "")
+		return fmt.Errorf("%s render produced invalid output at %s: %w [plan: %s]", kind, resolution, err, summarizeRenderPlan(plan))
 	}
 
 	storedPath := outputPath
-	if kind != "final" {
-		if published, err := s.publishFile(ctx, projectID, fmt.Sprintf("%s.mp4", kind), outputPath, "video/mp4", "renders"); err == nil {
-			storedPath = published
-		}
+	if published, err := s.publishFile(ctx, projectID, fmt.Sprintf("%s.mp4", kind), outputPath, "video/mp4", "renders"); err == nil {
+		storedPath = published
+	} else if s.storage != nil {
+		log.Printf("[render] upload warning for %s %s project=%s: %v", kind, resolution, projectID, err)
 	}
 	return s.db.UpdateRenderStatus(ctx, render.ID, "done", storedPath, "")
 }
@@ -219,9 +231,12 @@ func (s *Service) publishFile(ctx context.Context, projectID uuid.UUID, fileName
 }
 
 func buildFFmpegCommand(assets []*db.Asset, tracks []*db.AudioTrack, subtitles []*db.Subtitle, output, resolution string, fps int) ffmpeg.Command {
+	return buildFFmpegCommandForPlan(buildRenderPlan(assets, tracks, subtitles), output, resolution, fps)
+}
+
+func buildFFmpegCommandForPlan(plan renderPlan, output, resolution string, fps int) ffmpeg.Command {
 	args := []string{"-y"}
 	w, h := parseResolution(resolution)
-	plan := buildRenderPlan(assets, tracks, subtitles)
 	if plan.TotalDuration <= 0 {
 		plan.TotalDuration = 5
 	}
@@ -242,7 +257,7 @@ func buildFFmpegCommand(assets []*db.Asset, tracks []*db.AudioTrack, subtitles [
 		case path != "":
 			args = append(args, "-t", formatDuration(duration), "-i", path)
 		default:
-			args = append(args, "-f", "lavfi", "-t", formatDuration(duration), "-i", fmt.Sprintf("color=c=black:s=%d:%d", w, h))
+			args = append(args, "-f", "lavfi", "-t", formatDuration(duration), "-i", fmt.Sprintf("color=c=black:s=%dx%d", w, h))
 		}
 
 		label := fmt.Sprintf("v%d", i)
@@ -459,6 +474,53 @@ func firstUsablePath(paths ...string) string {
 		}
 	}
 	return ""
+}
+
+func validateRenderedOutput(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("render file missing: %w", err)
+	}
+	if info.Size() <= 0 {
+		return fmt.Errorf("render file is empty")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open render file: %w", err)
+	}
+	defer file.Close()
+
+	buffer := make([]byte, 64)
+	n, err := file.Read(buffer)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("read render file header: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("render file header is empty")
+	}
+	if !strings.Contains(string(buffer[:n]), "ftyp") {
+		return fmt.Errorf("render file does not look like a playable mp4")
+	}
+	return nil
+}
+
+func summarizeRenderPlan(plan renderPlan) string {
+	placeholderCount := 0
+	for _, scene := range plan.Scenes {
+		if firstUsablePath(scene.Path) == "" {
+			placeholderCount++
+		}
+	}
+	return fmt.Sprintf("scenes=%d placeholders=%d voice=%t music=%t subtitles=%t total_duration=%.2fs",
+		len(plan.Scenes), placeholderCount, plan.VoicePath != "", plan.MusicPath != "", plan.SubtitlePath != "", normalizeDuration(plan.TotalDuration, 5),
+	)
+}
+
+func truncateForLog(value string, max int) string {
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	return value[:max] + "…"
 }
 
 func escapeFFmpegPath(path string) string {

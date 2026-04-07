@@ -1,6 +1,8 @@
 package render
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +44,33 @@ func TestBuildFFmpegCommandUsesSceneConcatAndAudioMix(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected command to contain %q, got: %s", want, joined)
 		}
+	}
+}
+
+func TestBuildFFmpegCommandUsesValidPlaceholderSource(t *testing.T) {
+	cmd := buildFFmpegCommand(nil, nil, nil, "/tmp/out.mp4", "720x1280", 24)
+	joined := strings.Join(cmd.Args, " ")
+	if !strings.Contains(joined, "color=c=black:s=720x1280") {
+		t.Fatalf("expected placeholder source to use a valid size, got: %s", joined)
+	}
+}
+
+func TestValidateRenderedOutputRejectsEmptyAndAcceptsMp4Header(t *testing.T) {
+	tmpDir := t.TempDir()
+	emptyPath := filepath.Join(tmpDir, "empty.mp4")
+	if err := os.WriteFile(emptyPath, nil, 0o644); err != nil {
+		t.Fatalf("write empty file: %v", err)
+	}
+	if err := validateRenderedOutput(emptyPath); err == nil {
+		t.Fatal("expected empty file validation to fail")
+	}
+
+	goodPath := filepath.Join(tmpDir, "good.mp4")
+	if err := os.WriteFile(goodPath, []byte("\x00\x00\x00\x18ftypisomsynt-render-test"), 0o644); err != nil {
+		t.Fatalf("write sample mp4 file: %v", err)
+	}
+	if err := validateRenderedOutput(goodPath); err != nil {
+		t.Fatalf("expected mp4 header validation to pass, got %v", err)
 	}
 }
 

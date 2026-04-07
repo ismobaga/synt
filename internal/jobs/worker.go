@@ -510,7 +510,7 @@ func (w *Worker) handleRenderFinal(ctx context.Context, j *db.Job) error {
 func (w *Worker) handleRenderThumbnail(ctx context.Context, j *db.Job) error {
 	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageRenderThumbnail, "")
 	if err := w.render.ExtractThumbnail(ctx, j.ProjectID); err != nil {
-		return err
+		log.Printf("[worker] thumbnail extraction warning project=%s: %v", j.ProjectID, err)
 	}
 	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeProjectFinalize, j.Payload)
 }
