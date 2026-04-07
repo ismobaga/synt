@@ -265,8 +265,10 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
   const [savingScript, setSavingScript] = useState(false)
   const [savingMedia, setSavingMedia] = useState(false)
   const [rerunningStep, setRerunningStep] = useState<RerunStep | null>(null)
-  const { status, stage, error: statusError } = useProjectStatus(
-    project.status === 'processing' || project.status === 'queued' ? project.id : null
+  const { status, stage, error: statusError, steps } = useProjectStatus(
+    project.status === 'processing' || project.status === 'queued' || project.status === 'failed' || project.status === 'done' || showOutputs
+      ? project.id
+      : null
   )
 
   const currentStatus = status || project.status
@@ -532,7 +534,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
       </div>
 
       <div className="mb-3">
-        <PipelineProgress currentStage={currentStage} status={currentStatus} />
+        <PipelineProgress currentStage={currentStage} status={currentStatus} steps={steps} />
       </div>
 
       {currentError && <p className="mb-3 rounded-lg bg-red-50 p-2 text-xs text-red-600">{currentError}</p>}

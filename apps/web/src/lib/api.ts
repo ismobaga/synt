@@ -15,12 +15,27 @@ export interface Project {
   updated_at: string
 }
 
+export interface PipelineStepStatus {
+  job_type: string
+  stage: string
+  label: string
+  status: string
+  attempts: number
+  max_attempts: number
+  last_error?: string
+  scheduled_at?: string
+  started_at?: string
+  finished_at?: string
+  duration_ms?: number
+}
+
 export interface ProjectStatusResponse {
   id: string
   status: string
   current_stage: string
   error_message?: string
   updated_at?: string
+  steps?: PipelineStepStatus[]
 }
 
 export interface CreateProjectInput {

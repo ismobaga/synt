@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -280,15 +282,19 @@ func (db *DB) UpdateRenderStatus(ctx context.Context, id uuid.UUID, status, stor
 
 // CreateJob inserts a job record.
 func (db *DB) CreateJob(ctx context.Context, j *Job) error {
-	payload, err := json.Marshal(j.Payload)
-	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
+	payload := "{}"
+	trimmed := strings.TrimSpace(string(j.Payload))
+	if trimmed != "" {
+		if !json.Valid([]byte(trimmed)) {
+			return fmt.Errorf("job payload must be valid json")
+		}
+		payload = trimmed
 	}
-	q := `INSERT INTO jobs (id, project_id, job_type, status, payload, attempts, max_attempts, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`
-	_, err = db.ExecContext(ctx, q,
+	q := `INSERT INTO jobs (id, project_id, job_type, status, payload, attempts, max_attempts, scheduled_at, started_at, finished_at, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+	_, err := db.ExecContext(ctx, q,
 		j.ID, j.ProjectID, j.JobType, j.Status, payload,
-		j.Attempts, j.MaxAttempts, j.CreatedAt,
+		j.Attempts, j.MaxAttempts, j.ScheduledAt, j.StartedAt, j.FinishedAt, j.CreatedAt,
 	)
 	return err
 }
@@ -297,6 +303,42 @@ func (db *DB) CreateJob(ctx context.Context, j *Job) error {
 func (db *DB) UpdateJobStatus(ctx context.Context, id uuid.UUID, status, lastErr string) error {
 	q := `UPDATE jobs SET status=$2, last_error=$3 WHERE id=$1`
 	_, err := db.ExecContext(ctx, q, id, status, lastErr)
+	return err
+}
+
+// MarkJobRunning marks a job as running and increments the attempt counter.
+func (db *DB) MarkJobRunning(ctx context.Context, id uuid.UUID) error {
+	q := `UPDATE jobs
+		SET status=$2, last_error='', attempts=attempts+1, scheduled_at=NULL, started_at=NOW(), finished_at=NULL
+		WHERE id=$1`
+	_, err := db.ExecContext(ctx, q, id, JobStatusRunning)
+	return err
+}
+
+// MarkJobRetrying schedules a job for another attempt.
+func (db *DB) MarkJobRetrying(ctx context.Context, id uuid.UUID, lastErr string, scheduledAt time.Time) error {
+	q := `UPDATE jobs
+		SET status=$2, last_error=$3, scheduled_at=$4, finished_at=NOW()
+		WHERE id=$1`
+	_, err := db.ExecContext(ctx, q, id, JobStatusRetrying, lastErr, scheduledAt)
+	return err
+}
+
+// MarkJobDone marks a job as completed.
+func (db *DB) MarkJobDone(ctx context.Context, id uuid.UUID) error {
+	q := `UPDATE jobs
+		SET status=$2, last_error='', scheduled_at=NULL, finished_at=NOW()
+		WHERE id=$1`
+	_, err := db.ExecContext(ctx, q, id, JobStatusDone)
+	return err
+}
+
+// MarkJobFailed marks a job as permanently failed.
+func (db *DB) MarkJobFailed(ctx context.Context, id uuid.UUID, lastErr string) error {
+	q := `UPDATE jobs
+		SET status=$2, last_error=$3, scheduled_at=NULL, finished_at=NOW()
+		WHERE id=$1`
+	_, err := db.ExecContext(ctx, q, id, JobStatusFailed, lastErr)
 	return err
 }
 
@@ -309,6 +351,33 @@ func (db *DB) ListPendingJobs(ctx context.Context, limit int) ([]*Job, error) {
 		AND (scheduled_at IS NULL OR scheduled_at <= NOW())
 		ORDER BY created_at ASC LIMIT $3`
 	rows, err := db.QueryContext(ctx, q, JobStatusPending, JobStatusRetrying, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []*Job
+	for rows.Next() {
+		j := &Job{}
+		if err := rows.Scan(
+			&j.ID, &j.ProjectID, &j.JobType, &j.Status, &j.Payload,
+			&j.Attempts, &j.MaxAttempts, &j.LastError,
+			&j.ScheduledAt, &j.StartedAt, &j.FinishedAt, &j.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// ListJobsByProject returns recent jobs for a project, newest first.
+func (db *DB) ListJobsByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]*Job, error) {
+	q := `SELECT id, project_id, job_type, status, COALESCE(payload,'{}'), attempts, max_attempts,
+		COALESCE(last_error,''), scheduled_at, started_at, finished_at, created_at
+		FROM jobs
+		WHERE project_id=$1
+		ORDER BY created_at DESC LIMIT $2`
+	rows, err := db.QueryContext(ctx, q, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

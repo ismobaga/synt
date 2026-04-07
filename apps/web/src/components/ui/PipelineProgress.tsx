@@ -1,3 +1,5 @@
+import { type PipelineStepStatus } from '../../lib/api'
+
 const STAGES = [
   'source_fetch',
   'script_generation',
@@ -34,18 +36,38 @@ const STAGE_LABELS: Record<string, string> = {
 interface PipelineProgressProps {
   currentStage: string
   status: string
+  steps?: PipelineStepStatus[]
 }
 
-function getStepState(index: number, currentIdx: number, status: string) {
-  if (status === 'done') return 'complete'
+function getStepState(index: number, currentIdx: number, status: string, stepStatus?: string) {
+  if (stepStatus === 'retrying') return 'retrying'
+  if (stepStatus === 'failed') return 'failed'
+  if (status === 'done' || stepStatus === 'done') return 'complete'
   if (index < currentIdx) return 'complete'
   if (index === currentIdx && status === 'failed') return 'failed'
   if (index === currentIdx) return 'current'
   return 'upcoming'
 }
 
-export function PipelineProgress({ currentStage, status }: PipelineProgressProps) {
+function formatDurationMs(value?: number) {
+  if (!value || value <= 0) return null
+  const seconds = value / 1000
+  return seconds >= 10 ? `${Math.round(seconds)}s` : `${seconds.toFixed(1)}s`
+}
+
+function getStepMeta(step?: PipelineStepStatus) {
+  if (!step || step.status === 'not_started') return null
+  const bits: string[] = []
+  const duration = formatDurationMs(step.duration_ms)
+  if (duration) bits.push(duration)
+  if (step.attempts > 0) bits.push(`try ${step.attempts}/${step.max_attempts || 5}`)
+  if (step.status === 'retrying') bits.push('retry queued')
+  return bits.length > 0 ? bits.join(' · ') : step.status.replace('_', ' ')
+}
+
+export function PipelineProgress({ currentStage, status, steps = [] }: PipelineProgressProps) {
   const currentIdx = STAGES.indexOf(currentStage as (typeof STAGES)[number])
+  const stepMap = new Map(steps.map((step) => [step.stage, step]))
 
   return (
     <div className="w-full">
@@ -58,8 +80,7 @@ export function PipelineProgress({ currentStage, status }: PipelineProgressProps
 
       <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${status === 'failed' ? 'bg-red-500' : status === 'done' ? 'bg-green-500' : 'bg-purple-600'
-            }`}
+          className={`h-full rounded-full transition-all duration-500 ${status === 'failed' ? 'bg-red-500' : status === 'done' ? 'bg-green-500' : 'bg-purple-600'}`}
           style={{
             width:
               status === 'done'
@@ -73,20 +94,29 @@ export function PipelineProgress({ currentStage, status }: PipelineProgressProps
 
       <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
         {STAGES.map((stage, index) => {
-          const stepState = getStepState(index, currentIdx, status)
+          const detail = stepMap.get(stage)
+          const stepState = getStepState(index, currentIdx, status, detail?.status)
           const styles =
             stepState === 'complete'
               ? 'border-green-200 bg-green-50 text-green-700'
               : stepState === 'current'
                 ? 'border-purple-200 bg-purple-50 text-purple-700'
-                : stepState === 'failed'
-                  ? 'border-red-200 bg-red-50 text-red-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-500'
+                : stepState === 'retrying'
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : stepState === 'failed'
+                    ? 'border-red-200 bg-red-50 text-red-700'
+                    : 'border-gray-200 bg-gray-50 text-gray-500'
 
           return (
             <div key={stage} className={`rounded-md border px-2 py-1 text-[11px] font-medium ${styles}`}>
-              <span className="mr-1 opacity-70">{index + 1}.</span>
-              {STAGE_LABELS[stage]}
+              <div>
+                <span className="mr-1 opacity-70">{index + 1}.</span>
+                {STAGE_LABELS[stage]}
+              </div>
+              {getStepMeta(detail) && <div className="mt-0.5 text-[10px] opacity-75">{getStepMeta(detail)}</div>}
+              {detail?.last_error && (stepState === 'failed' || stepState === 'retrying') && (
+                <div className="mt-0.5 break-words text-[10px] opacity-75">{detail.last_error}</div>
+              )}
             </div>
           )
         })}

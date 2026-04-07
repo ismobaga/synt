@@ -19,6 +19,68 @@ type ProjectHandler struct {
 	orchestrator *orchestrator.Orchestrator
 }
 
+type pipelineStepDescriptor struct {
+	Stage   string
+	JobType string
+	Label   string
+}
+
+var pipelineStepDescriptors = []pipelineStepDescriptor{
+	{Stage: db.StageSourceFetch, JobType: db.JobTypeSourceFetch, Label: "Fetching sources"},
+	{Stage: db.StageScriptGeneration, JobType: db.JobTypeScriptGenerate, Label: "Generating script"},
+	{Stage: db.StageScriptValidation, JobType: db.JobTypeScriptValidate, Label: "Validating script"},
+	{Stage: db.StageMediaSearch, JobType: db.JobTypeMediaSearch, Label: "Searching media"},
+	{Stage: db.StageMediaPrepare, JobType: db.JobTypeMediaPrepare, Label: "Preparing media"},
+	{Stage: db.StageVoiceGeneration, JobType: db.JobTypeVoiceGenerate, Label: "Generating voice"},
+	{Stage: db.StageSubtitleGeneration, JobType: db.JobTypeSubtitleGenerate, Label: "Generating subtitles"},
+	{Stage: db.StageMusicSelection, JobType: db.JobTypeMusicSelect, Label: "Selecting music"},
+	{Stage: db.StageTimelineBuild, JobType: db.JobTypeTimelineBuild, Label: "Building timeline"},
+	{Stage: db.StageRenderPreview, JobType: db.JobTypeRenderPreview, Label: "Rendering preview"},
+	{Stage: db.StageRenderFinal, JobType: db.JobTypeRenderFinal, Label: "Rendering final video"},
+	{Stage: db.StageRenderThumbnail, JobType: db.JobTypeRenderThumbnail, Label: "Extracting thumbnail"},
+	{Stage: db.StageFinalize, JobType: db.JobTypeProjectFinalize, Label: "Finalizing project"},
+}
+
+func buildProjectStatusSteps(recentJobs []*db.Job) []PipelineStepStatusResponse {
+	latestByType := make(map[string]*db.Job, len(recentJobs))
+	for _, job := range recentJobs {
+		if job == nil {
+			continue
+		}
+		existing := latestByType[job.JobType]
+		if existing == nil || job.CreatedAt.After(existing.CreatedAt) {
+			latestByType[job.JobType] = job
+		}
+	}
+
+	steps := make([]PipelineStepStatusResponse, 0, len(pipelineStepDescriptors))
+	for _, descriptor := range pipelineStepDescriptors {
+		step := PipelineStepStatusResponse{
+			JobType: descriptor.JobType,
+			Stage:   descriptor.Stage,
+			Label:   descriptor.Label,
+			Status:  "not_started",
+		}
+		if job := latestByType[descriptor.JobType]; job != nil {
+			step.Status = job.Status
+			step.Attempts = job.Attempts
+			step.MaxAttempts = job.MaxAttempts
+			step.LastError = job.LastError
+			step.ScheduledAt = job.ScheduledAt
+			step.StartedAt = job.StartedAt
+			step.FinishedAt = job.FinishedAt
+			if job.StartedAt != nil && job.FinishedAt != nil {
+				duration := job.FinishedAt.Sub(*job.StartedAt)
+				if duration > 0 {
+					step.DurationMs = duration.Milliseconds()
+				}
+			}
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
 // NewProjectHandler creates a new ProjectHandler.
 func NewProjectHandler(database *db.DB, orch *orchestrator.Orchestrator) *ProjectHandler {
 	return &ProjectHandler{db: database, orchestrator: orch}
@@ -269,7 +331,7 @@ func (h *ProjectHandler) Generate(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, GenerateResponse{
 		Status:       db.ProjectStatusQueued,
-		CurrentStage: db.StageScriptGeneration,
+		CurrentStage: db.StageSourceFetch,
 	})
 }
 
@@ -286,12 +348,19 @@ func (h *ProjectHandler) Status(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
+	var steps []PipelineStepStatusResponse
+	if recentJobs, jobsErr := h.db.ListJobsByProject(r.Context(), uid, 64); jobsErr != nil {
+		log.Printf("failed to load job history for project %s: %v", uid, jobsErr)
+	} else {
+		steps = buildProjectStatusSteps(recentJobs)
+	}
 	writeJSON(w, http.StatusOK, ProjectStatusResponse{
 		ID:           project.ID.String(),
 		Status:       project.Status,
 		CurrentStage: project.CurrentStage,
 		ErrorMessage: project.ErrorMessage,
 		UpdatedAt:    project.UpdatedAt,
+		Steps:        steps,
 	})
 }
 
@@ -498,11 +567,16 @@ func (h *ProjectHandler) RegenerateScript(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid project id")
 		return
 	}
-	if err := h.orchestrator.EnqueueJob(r.Context(), uid, db.JobTypeScriptGenerate, nil); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to enqueue script generation")
+	payload, _ := json.Marshal(map[string]any{"auto_render": false, "source": "manual_regenerate", "step": "script"})
+	if err := h.db.UpdateProjectStatus(r.Context(), uid, db.ProjectStatusQueued, db.StageSourceFetch, ""); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update project status")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "queued"})
+	if err := h.orchestrator.EnqueueJob(r.Context(), uid, db.JobTypeSourceFetch, payload); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to enqueue source fetch")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "queued", "step": "source_fetch"})
 }
 
 // GetAssets handles GET /v1/projects/:id/assets.

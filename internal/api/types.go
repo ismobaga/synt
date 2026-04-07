@@ -35,12 +35,27 @@ type GenerateResponse struct {
 }
 
 // ProjectStatusResponse holds project status details.
+type PipelineStepStatusResponse struct {
+	JobType     string     `json:"job_type"`
+	Stage       string     `json:"stage"`
+	Label       string     `json:"label"`
+	Status      string     `json:"status"`
+	Attempts    int        `json:"attempts"`
+	MaxAttempts int        `json:"max_attempts"`
+	LastError   string     `json:"last_error,omitempty"`
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	DurationMs  int64      `json:"duration_ms,omitempty"`
+}
+
 type ProjectStatusResponse struct {
-	ID           string    `json:"id"`
-	Status       string    `json:"status"`
-	CurrentStage string    `json:"current_stage"`
-	ErrorMessage string    `json:"error_message,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string                       `json:"id"`
+	Status       string                       `json:"status"`
+	CurrentStage string                       `json:"current_stage"`
+	ErrorMessage string                       `json:"error_message,omitempty"`
+	UpdatedAt    time.Time                    `json:"updated_at"`
+	Steps        []PipelineStepStatusResponse `json:"steps,omitempty"`
 }
 
 // SceneContent describes one scene in the generated script.

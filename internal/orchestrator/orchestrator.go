@@ -29,17 +29,18 @@ func New(database *db.DB, q Queue) *Orchestrator {
 
 // TriggerGeneration starts the full generation pipeline for a project.
 func (o *Orchestrator) TriggerGeneration(ctx context.Context, projectID uuid.UUID, autoRender bool) error {
-	if err := o.db.UpdateProjectStatus(ctx, projectID, db.ProjectStatusQueued, db.StageScriptGeneration, ""); err != nil {
+	if err := o.db.UpdateProjectStatus(ctx, projectID, db.ProjectStatusQueued, db.StageSourceFetch, ""); err != nil {
 		return fmt.Errorf("update project status: %w", err)
 	}
 
 	payload := map[string]any{
 		"project_id":  projectID.String(),
 		"auto_render": autoRender,
+		"source":      "project_generate",
 	}
 	data, _ := json.Marshal(payload)
 
-	return o.EnqueueJob(ctx, projectID, db.JobTypeProjectGenerate, data)
+	return o.EnqueueJob(ctx, projectID, db.JobTypeSourceFetch, data)
 }
 
 // RetryProject re-enqueues a failed project.

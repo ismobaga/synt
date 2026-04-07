@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { api } from '../lib/api'
+import { api, type PipelineStepStatus } from '../lib/api'
 
 const POLL_INTERVAL = 3000
 
@@ -10,6 +10,7 @@ export function useProjectStatus(projectId: string | null) {
   const [status, setStatus] = useState<string>('')
   const [stage, setStage] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const [steps, setSteps] = useState<PipelineStepStatus[]>([])
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -21,6 +22,7 @@ export function useProjectStatus(projectId: string | null) {
         setStatus(result.status)
         setStage(result.current_stage)
         setError(result.error_message ?? null)
+        setSteps(result.steps ?? [])
 
         if (TERMINAL_STATUSES.has(result.status) || TERMINAL_STAGES.has(result.current_stage)) {
           if (intervalRef.current) {
@@ -44,5 +46,5 @@ export function useProjectStatus(projectId: string | null) {
     }
   }, [projectId])
 
-  return { status, stage, error }
+  return { status, stage, error, steps }
 }

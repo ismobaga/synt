@@ -40,6 +40,88 @@ type Config struct {
 	PollInterval time.Duration
 }
 
+type pipelineStepDef struct {
+	Stage   string
+	JobType string
+	Label   string
+}
+
+var pipelineStepDefs = []pipelineStepDef{
+	{Stage: db.StageSourceFetch, JobType: db.JobTypeSourceFetch, Label: "Fetching sources"},
+	{Stage: db.StageScriptGeneration, JobType: db.JobTypeScriptGenerate, Label: "Generating script"},
+	{Stage: db.StageScriptValidation, JobType: db.JobTypeScriptValidate, Label: "Validating script"},
+	{Stage: db.StageMediaSearch, JobType: db.JobTypeMediaSearch, Label: "Searching media"},
+	{Stage: db.StageMediaPrepare, JobType: db.JobTypeMediaPrepare, Label: "Preparing media"},
+	{Stage: db.StageVoiceGeneration, JobType: db.JobTypeVoiceGenerate, Label: "Generating voice"},
+	{Stage: db.StageSubtitleGeneration, JobType: db.JobTypeSubtitleGenerate, Label: "Generating subtitles"},
+	{Stage: db.StageMusicSelection, JobType: db.JobTypeMusicSelect, Label: "Selecting music"},
+	{Stage: db.StageTimelineBuild, JobType: db.JobTypeTimelineBuild, Label: "Building timeline"},
+	{Stage: db.StageRenderPreview, JobType: db.JobTypeRenderPreview, Label: "Rendering preview"},
+	{Stage: db.StageRenderFinal, JobType: db.JobTypeRenderFinal, Label: "Rendering final video"},
+	{Stage: db.StageRenderThumbnail, JobType: db.JobTypeRenderThumbnail, Label: "Extracting thumbnail"},
+	{Stage: db.StageFinalize, JobType: db.JobTypeProjectFinalize, Label: "Finalizing project"},
+}
+
+// PipelineStepStatus exposes the latest observable state for a pipeline step.
+type PipelineStepStatus struct {
+	JobType     string     `json:"job_type"`
+	Stage       string     `json:"stage"`
+	Label       string     `json:"label"`
+	Status      string     `json:"status"`
+	Attempts    int        `json:"attempts"`
+	MaxAttempts int        `json:"max_attempts"`
+	LastError   string     `json:"last_error,omitempty"`
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	DurationMs  int64      `json:"duration_ms,omitempty"`
+}
+
+// BuildPipelineStepStatuses returns a step-by-step view of the most recent job attempts.
+func BuildPipelineStepStatuses(jobRecords []*db.Job) []PipelineStepStatus {
+	return buildPipelineStepStatuses(jobRecords)
+}
+
+func buildPipelineStepStatuses(jobRecords []*db.Job) []PipelineStepStatus {
+	latestByType := make(map[string]*db.Job, len(jobRecords))
+	for _, job := range jobRecords {
+		if job == nil {
+			continue
+		}
+		existing := latestByType[job.JobType]
+		if existing == nil || job.CreatedAt.After(existing.CreatedAt) {
+			latestByType[job.JobType] = job
+		}
+	}
+
+	steps := make([]PipelineStepStatus, 0, len(pipelineStepDefs))
+	for _, def := range pipelineStepDefs {
+		step := PipelineStepStatus{
+			JobType: def.JobType,
+			Stage:   def.Stage,
+			Label:   def.Label,
+			Status:  "not_started",
+		}
+		if job := latestByType[def.JobType]; job != nil {
+			step.Status = job.Status
+			step.Attempts = job.Attempts
+			step.MaxAttempts = job.MaxAttempts
+			step.LastError = job.LastError
+			step.ScheduledAt = job.ScheduledAt
+			step.StartedAt = job.StartedAt
+			step.FinishedAt = job.FinishedAt
+			if job.StartedAt != nil && job.FinishedAt != nil {
+				duration := job.FinishedAt.Sub(*job.StartedAt)
+				if duration > 0 {
+					step.DurationMs = duration.Milliseconds()
+				}
+			}
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
 // New creates a new Worker.
 func New(
 	database *db.DB,
@@ -93,16 +175,20 @@ func (w *Worker) processBatch(ctx context.Context) {
 	}
 	for _, j := range jobs {
 		if err := w.process(ctx, j); err != nil {
-			log.Printf("[worker] job %s (%s) failed: %v", j.ID, j.JobType, err)
-			_ = w.db.UpdateJobStatus(ctx, j.ID, db.JobStatusFailed, err.Error())
-			_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusFailed, stageForJobType(j.JobType), err.Error())
+			log.Printf("[worker] bookkeeping error for job %s (%s): %v", j.ID, j.JobType, err)
 		}
 	}
 }
 
 func (w *Worker) process(ctx context.Context, j *db.Job) error {
-	log.Printf("[worker] processing job %s type=%s project=%s", j.ID, j.JobType, j.ProjectID)
-	_ = w.db.UpdateJobStatus(ctx, j.ID, db.JobStatusRunning, "")
+	attempt := j.Attempts + 1
+	stage := stageForJobType(j.JobType)
+	log.Printf("[worker] start job=%s type=%s stage=%s project=%s attempt=%d/%d", j.ID, j.JobType, stage, j.ProjectID, attempt, j.MaxAttempts)
+	if err := w.db.MarkJobRunning(ctx, j.ID); err != nil {
+		return fmt.Errorf("mark job running: %w", err)
+	}
+	j.Attempts = attempt
+	startedAt := time.Now().UTC()
 
 	var err error
 	switch j.JobType {
@@ -139,12 +225,37 @@ func (w *Worker) process(ctx context.Context, j *db.Job) error {
 	}
 
 	if err != nil {
-		return err
+		return w.handleJobFailure(ctx, j, err, startedAt)
 	}
-	return w.db.UpdateJobStatus(ctx, j.ID, db.JobStatusDone, "")
+
+	duration := time.Since(startedAt).Round(10 * time.Millisecond)
+	log.Printf("[worker] done job=%s type=%s stage=%s project=%s attempt=%d/%d duration=%s", j.ID, j.JobType, stage, j.ProjectID, j.Attempts, j.MaxAttempts, duration)
+	return w.db.MarkJobDone(ctx, j.ID)
+}
+
+func (w *Worker) handleJobFailure(ctx context.Context, j *db.Job, err error, startedAt time.Time) error {
+	stage := stageForJobType(j.JobType)
+	duration := time.Since(startedAt).Round(10 * time.Millisecond)
+	if shouldRetryJob(ctx, j, err) {
+		delay := retryDelayForAttempt(j.Attempts)
+		scheduledAt := time.Now().UTC().Add(delay)
+		log.Printf("[worker] retry job=%s type=%s stage=%s project=%s next_in=%s attempt=%d/%d duration=%s error=%v", j.ID, j.JobType, stage, j.ProjectID, delay.Round(time.Second), j.Attempts+1, j.MaxAttempts, duration, err)
+		if markErr := w.db.MarkJobRetrying(ctx, j.ID, err.Error(), scheduledAt); markErr != nil {
+			return fmt.Errorf("mark job retrying: %w", markErr)
+		}
+		message := fmt.Sprintf("Retrying %s in %s (attempt %d/%d): %v", stage, delay.Round(time.Second), j.Attempts+1, j.MaxAttempts, err)
+		return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusQueued, stage, message)
+	}
+
+	log.Printf("[worker] failed job=%s type=%s stage=%s project=%s attempt=%d/%d duration=%s error=%v", j.ID, j.JobType, stage, j.ProjectID, j.Attempts, j.MaxAttempts, duration, err)
+	if markErr := w.db.MarkJobFailed(ctx, j.ID, err.Error()); markErr != nil {
+		return fmt.Errorf("mark job failed: %w", markErr)
+	}
+	return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusFailed, stage, err.Error())
 }
 
 func (w *Worker) handleProjectGenerate(ctx context.Context, j *db.Job) error {
+	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusQueued, db.StageSourceFetch, "")
 	return w.enqueueJob(ctx, j.ProjectID, db.JobTypeSourceFetch, j.Payload)
 }
 
@@ -169,6 +280,7 @@ func (w *Worker) hydrateSourceMaterials(ctx context.Context, projectID uuid.UUID
 		}
 	}
 	if !hasSources {
+		log.Printf("[worker] source_fetch project=%s skipped (no source materials)", projectID)
 		return nil
 	}
 
@@ -178,17 +290,25 @@ func (w *Worker) hydrateSourceMaterials(ctx context.Context, projectID uuid.UUID
 			continue
 		}
 		if sourceMaterialAlreadyFetched(asset) {
+			log.Printf("[worker] source_fetch project=%s asset=%s skipped (already fetched)", projectID, asset.ID)
 			continue
 		}
 
+		fetchStarted := time.Now()
 		result, fetchErr := w.source.Fetch(ctx, asset.URL)
 		metadata := mergeSourceAssetMetadata(asset.Metadata, result, fetchErr)
 		if err := w.db.UpdateAssetMetadata(ctx, asset.ID, metadata); err != nil {
 			return err
 		}
 		if fetchErr != nil {
-			log.Printf("[worker] source fetch warning for %s: %v", asset.URL, fetchErr)
+			log.Printf("[worker] source_fetch project=%s asset=%s duration=%s warning=%v", projectID, asset.ID, time.Since(fetchStarted).Round(10*time.Millisecond), fetchErr)
+			continue
 		}
+		transcriptSource := ""
+		if result != nil {
+			transcriptSource = result.TranscriptSource
+		}
+		log.Printf("[worker] source_fetch project=%s asset=%s duration=%s transcript_source=%s", projectID, asset.ID, time.Since(fetchStarted).Round(10*time.Millisecond), transcriptSource)
 	}
 	return nil
 }
@@ -540,6 +660,33 @@ func promptExcerpt(value string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
+func shouldRetryJob(ctx context.Context, j *db.Job, err error) bool {
+	if err == nil || j == nil || ctx.Err() != nil || j.Attempts >= j.MaxAttempts {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	for _, hint := range []string{"unknown job type", "unsupported step", "project not found", "template not found"} {
+		if strings.Contains(message, hint) {
+			return false
+		}
+	}
+	return true
+}
+
+func retryDelayForAttempt(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := 5 * time.Second
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay >= 2*time.Minute {
+			return 2 * time.Minute
+		}
+	}
+	return delay
+}
+
 func shouldAutoRender(payload []byte) bool {
 	if len(payload) == 0 {
 		return true
@@ -555,7 +702,7 @@ func shouldAutoRender(payload []byte) bool {
 
 func stageForJobType(jobType string) string {
 	switch jobType {
-	case db.JobTypeSourceFetch:
+	case db.JobTypeProjectGenerate, db.JobTypeSourceFetch:
 		return db.StageSourceFetch
 	case db.JobTypeScriptGenerate:
 		return db.StageScriptGeneration
