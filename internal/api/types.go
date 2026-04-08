@@ -60,12 +60,15 @@ type ProjectStatusResponse struct {
 
 // SceneContent describes one scene in the generated script.
 type SceneContent struct {
-	Index        int    `json:"index"`
-	DurationSec  int    `json:"duration_sec"`
-	Narration    string `json:"narration"`
-	Caption      string `json:"caption"`
-	VisualQuery  string `json:"visual_query"`
-	OverlayStyle string `json:"overlay_style"`
+	Index         int      `json:"index"`
+	DurationSec   int      `json:"duration_sec"`
+	Narration     string   `json:"narration"`
+	Caption       string   `json:"caption"`
+	VisualQuery   string   `json:"visual_query"`
+	OverlayStyle  string   `json:"overlay_style"`
+	Locked        bool     `json:"locked,omitempty"`
+	SourceFactIDs []string `json:"source_fact_ids,omitempty"`
+	SourceFacts   []string `json:"source_facts,omitempty"`
 }
 
 // SubtitleStyle controls the rendered subtitle appearance.
@@ -80,14 +83,15 @@ type SubtitleStyle struct {
 
 // ScriptContent is the structured JSON output from the content service.
 type ScriptContent struct {
-	Title         string         `json:"title"`
-	Hook          string         `json:"hook"`
-	DurationSec   int            `json:"duration_sec"`
-	Language      string         `json:"language"`
-	CTA           string         `json:"cta"`
-	MusicMood     string         `json:"music_mood"`
-	SubtitleStyle SubtitleStyle  `json:"subtitle_style,omitempty"`
-	Scenes        []SceneContent `json:"scenes"`
+	Title           string         `json:"title"`
+	Hook            string         `json:"hook"`
+	DurationSec     int            `json:"duration_sec"`
+	Language        string         `json:"language"`
+	CTA             string         `json:"cta"`
+	MusicMood       string         `json:"music_mood"`
+	UsedSourceFacts []string       `json:"used_source_facts,omitempty"`
+	SubtitleStyle   SubtitleStyle  `json:"subtitle_style,omitempty"`
+	Scenes          []SceneContent `json:"scenes"`
 }
 
 // UpdateScriptRequest is the request body for PUT /v1/projects/:id/script.

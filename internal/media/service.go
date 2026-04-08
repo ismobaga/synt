@@ -40,18 +40,21 @@ func New(providers ...Provider) *Service {
 }
 
 // SearchAssets finds media for each scene in the script.
-func (s *Service) SearchAssets(ctx context.Context, projectID uuid.UUID, scriptJSON []byte) ([]*db.Asset, error) {
+func (s *Service) SearchAssets(ctx context.Context, projectID uuid.UUID, scriptJSON []byte, existingAssets ...*db.Asset) ([]*db.Asset, error) {
 	var script content.ScriptContent
 	if err := json.Unmarshal(scriptJSON, &script); err != nil {
 		return nil, fmt.Errorf("parse script: %w", err)
 	}
 
 	var assets []*db.Asset
-	for _, scene := range script.Scenes {
+	for index, scene := range script.Scenes {
+		if preservedAssetForScene(existingAssets, scene, index) != nil {
+			continue
+		}
 		asset, err := s.searchForScene(ctx, projectID, scene)
 		if err != nil {
 			// fallback: use a placeholder
-			asset = s.placeholderAsset(projectID, scene.VisualQuery)
+			asset = s.placeholderAsset(projectID, scene)
 		}
 		assets = append(assets, asset)
 	}
@@ -86,6 +89,7 @@ func (s *Service) searchForScene(ctx context.Context, projectID uuid.UUID, scene
 			Height:      best.Height,
 			DurationSec: best.DurationSec,
 			LicenseInfo: licenseJSON,
+			Metadata:    sceneAssetMetadata(scene, false),
 			CreatedAt:   time.Now().UTC(),
 		}, nil
 	}
@@ -109,17 +113,97 @@ func rankCandidates(candidates []*Candidate) *Candidate {
 	return best
 }
 
-func (s *Service) placeholderAsset(projectID uuid.UUID, query string) *db.Asset {
-	meta, _ := json.Marshal(map[string]string{"query": query, "type": "placeholder"})
+func (s *Service) placeholderAsset(projectID uuid.UUID, scene content.SceneContent) *db.Asset {
 	return &db.Asset{
 		ID:        uuid.New(),
 		ProjectID: &projectID,
 		Type:      "image",
 		Source:    "placeholder",
 		Provider:  "internal",
-		Metadata:  meta,
+		Metadata:  sceneAssetMetadata(scene, true),
 		CreatedAt: time.Now().UTC(),
 	}
+}
+
+func sceneAssetMetadata(scene content.SceneContent, placeholder bool) []byte {
+	payload := map[string]any{
+		"query":        scene.VisualQuery,
+		"scene_index":  scene.Index,
+		"scene_locked": scene.Locked,
+	}
+	if placeholder {
+		payload["type"] = "placeholder"
+	}
+	if len(scene.SourceFactIDs) > 0 {
+		payload["source_fact_ids"] = scene.SourceFactIDs
+	}
+	if len(scene.SourceFacts) > 0 {
+		payload["source_facts"] = scene.SourceFacts
+	}
+	meta, _ := json.Marshal(payload)
+	return meta
+}
+
+func preservedAssetForScene(existingAssets []*db.Asset, scene content.SceneContent, fallbackIndex int) *db.Asset {
+	targetIndex := scene.Index
+	if targetIndex <= 0 {
+		targetIndex = fallbackIndex + 1
+	}
+	var preserved *db.Asset
+	for _, asset := range existingAssets {
+		if asset == nil || (asset.Type != "video" && asset.Type != "image") {
+			continue
+		}
+		if sceneIndexFromAssetMetadata(asset.Metadata, fallbackIndex+1) != targetIndex {
+			continue
+		}
+		if !scene.Locked && !assetMetadataBool(asset.Metadata, "manual_override") && !assetMetadataBool(asset.Metadata, "scene_locked") {
+			continue
+		}
+		if preserved == nil || asset.CreatedAt.After(preserved.CreatedAt) {
+			preserved = asset
+		}
+	}
+	return preserved
+}
+
+func sceneIndexFromAssetMetadata(metadata []byte, fallback int) int {
+	if len(metadata) == 0 {
+		return fallback
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		return fallback
+	}
+	if value, ok := payload["scene_index"]; ok {
+		switch typed := value.(type) {
+		case float64:
+			if typed > 0 {
+				return int(typed)
+			}
+		case int:
+			if typed > 0 {
+				return typed
+			}
+		}
+	}
+	return fallback
+}
+
+func assetMetadataBool(metadata []byte, key string) bool {
+	if len(metadata) == 0 {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		return false
+	}
+	value, ok := payload[key]
+	if !ok {
+		return false
+	}
+	flag, _ := value.(bool)
+	return flag
 }
 
 // PrepareAssets preprocesses downloaded assets for the render pipeline.

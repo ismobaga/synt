@@ -54,6 +54,9 @@ type SceneDraft = {
   caption: string
   visual_query: string
   overlay_style: string
+  locked: boolean
+  source_fact_ids: string[]
+  source_facts: string[]
 }
 
 type ScriptDraft = {
@@ -63,6 +66,7 @@ type ScriptDraft = {
   language: string
   duration_sec: number
   music_mood: string
+  used_source_facts: string[]
   subtitle_style: SubtitleStyleDraft
   scenes: SceneDraft[]
 }
@@ -194,6 +198,15 @@ function getMetadataValue(metadata: unknown, key: string): string | null {
   return typeof candidate === 'string' ? candidate : String(candidate)
 }
 
+function getStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((entry) => String(entry).trim()).filter(Boolean) : []
+}
+
+function getSceneIndexFromAsset(asset: AssetRecord, fallbackIndex: number) {
+  const raw = Number(getMetadataObject(asset.metadata).scene_index)
+  return Number.isFinite(raw) && raw > 0 ? raw : fallbackIndex + 1
+}
+
 function normalizeSubtitleStyle(value: unknown): SubtitleStyleDraft {
   const meta = getMetadataObject(value)
   const fontSize = Number(meta.font_size)
@@ -221,6 +234,9 @@ function normalizeScriptDraft(script: ScriptRecord | null): ScriptDraft | null {
       caption: typeof value.caption === 'string' ? value.caption : '',
       visual_query: typeof value.visual_query === 'string' ? value.visual_query : '',
       overlay_style: typeof value.overlay_style === 'string' && value.overlay_style ? value.overlay_style : 'main',
+      locked: Boolean(value.locked),
+      source_fact_ids: getStringList(value.source_fact_ids),
+      source_facts: getStringList(value.source_facts),
     }
   })
 
@@ -231,6 +247,7 @@ function normalizeScriptDraft(script: ScriptRecord | null): ScriptDraft | null {
     language: typeof content.language === 'string' && content.language ? content.language : script.language,
     duration_sec: Number(content.duration_sec) || scenes.reduce((total, scene) => total + scene.duration_sec, 0) || 30,
     music_mood: typeof content.music_mood === 'string' ? content.music_mood : '',
+    used_source_facts: getStringList(content.used_source_facts),
     subtitle_style: normalizeSubtitleStyle(content.subtitle_style),
     scenes,
   }
@@ -294,6 +311,30 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
     () => assets.filter((asset) => asset.type === 'image' || asset.type === 'video'),
     [assets]
   )
+  const sourceFactBank = useMemo(() => {
+    const seen = new Set<string>()
+    return sourceAssets.flatMap((asset) => {
+      const facts = getStringList(getMetadataObject(asset.metadata).grounding_facts)
+      return facts.filter((fact) => {
+        if (seen.has(fact)) return false
+        seen.add(fact)
+        return true
+      })
+    })
+  }, [sourceAssets])
+  const sceneAssetMap = useMemo(() => {
+    const map = new Map<number, AssetRecord>()
+    mediaAssets.forEach((asset, index) => {
+      const sceneIndex = getSceneIndexFromAsset(asset, index)
+      const existing = map.get(sceneIndex)
+      const isManual = Boolean(getMetadataObject(asset.metadata).manual_override)
+      const existingIsManual = existing ? Boolean(getMetadataObject(existing.metadata).manual_override) : false
+      if (!existing || (isManual && !existingIsManual) || new Date(asset.created_at).getTime() >= new Date(existing.created_at).getTime()) {
+        map.set(sceneIndex, asset)
+      }
+    })
+    return map
+  }, [mediaAssets])
   const manifestAsset = useMemo(() => assets.find((asset) => asset.type === 'manifest'), [assets])
   const displayRenders = useMemo(() => {
     const rank = (status: string) => {
@@ -350,6 +391,8 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
     : null
   const sceneReview = scriptDraft?.scenes ?? []
   const isWorking = savingScript || savingMedia || Boolean(rerunningStep)
+  const getMediaAssetForScene = (scene: SceneDraft, fallbackIndex: number) =>
+    sceneAssetMap.get(scene.index || fallbackIndex + 1) ?? mediaAssets[fallbackIndex] ?? null
 
   useEffect(() => {
     if (!showEditor) return
@@ -378,14 +421,45 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
     })
   }
 
-  const handleSceneChange = (sceneIndex: number, field: keyof SceneDraft, value: string | number) => {
+  const handleSceneChange = (sceneIndex: number, field: keyof SceneDraft, value: string | number | boolean | string[]) => {
     setScriptDraft((current) => {
       if (!current) return current
-      const scenes = current.scenes.map((scene, index) =>
-        index === sceneIndex ? { ...scene, [field]: value } : scene
-      )
+      const scenes = current.scenes.map((scene, index) => {
+        if (index !== sceneIndex) return scene
+        const nextScene = { ...scene, [field]: value }
+        if (field === 'source_fact_ids') {
+          const ids = Array.isArray(value) ? value.map((entry) => String(entry).trim().toUpperCase()).filter(Boolean) : []
+          nextScene.source_fact_ids = ids
+          nextScene.source_facts = ids
+            .map((id) => {
+              const match = /^F(\d+)$/.exec(id)
+              if (!match) return null
+              const factIndex = Number(match[1]) - 1
+              return factIndex >= 0 ? sourceFactBank[factIndex] ?? null : null
+            })
+            .filter((fact): fact is string => Boolean(fact))
+        }
+        return nextScene
+      })
       const nextDuration = scenes.reduce((total, scene) => total + Number(scene.duration_sec || 0), 0)
-      return { ...current, scenes, duration_sec: nextDuration || current.duration_sec }
+      const usedFacts = Array.from(new Set(scenes.flatMap((scene) => scene.source_facts)))
+      return { ...current, scenes, duration_sec: nextDuration || current.duration_sec, used_source_facts: usedFacts }
+    })
+  }
+
+  const moveScene = (sceneIndex: number, direction: 'up' | 'down') => {
+    setScriptDraft((current) => {
+      if (!current) return current
+      const targetIndex = direction === 'up' ? sceneIndex - 1 : sceneIndex + 1
+      if (targetIndex < 0 || targetIndex >= current.scenes.length) return current
+      const scenes = [...current.scenes]
+      ;[scenes[sceneIndex], scenes[targetIndex]] = [scenes[targetIndex], scenes[sceneIndex]]
+      const normalizedScenes = scenes.map((scene, index) => ({ ...scene, index: index + 1 }))
+      return {
+        ...current,
+        scenes: normalizedScenes,
+        duration_sec: normalizedScenes.reduce((total, scene) => total + Number(scene.duration_sec || 0), 0) || current.duration_sec,
+      }
     })
   }
 
@@ -432,6 +506,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
       language: scriptDraft.language,
       duration_sec: Math.max(1, Math.round(scriptDraft.duration_sec || 30)),
       music_mood: scriptDraft.music_mood,
+      used_source_facts: scriptDraft.used_source_facts,
       subtitle_style: scriptDraft.subtitle_style,
       scenes: scriptDraft.scenes.map((scene, index) => ({
         index: scene.index || index + 1,
@@ -440,6 +515,9 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
         caption: scene.caption.trim(),
         visual_query: scene.visual_query.trim(),
         overlay_style: scene.overlay_style,
+        locked: scene.locked,
+        source_fact_ids: scene.source_fact_ids,
+        source_facts: scene.source_facts,
       })),
     }
 
@@ -447,7 +525,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
       await api.projects.updateScript(project.id, payload)
       await refresh()
       await Promise.resolve(onRefreshProjects?.())
-      setEditorNotice('Script changes saved. Use the rerun buttons to regenerate from the step you want.')
+      setEditorNotice('Script changes saved. Rerun the timeline or preview to apply only the edited scenes; frozen scenes keep their media.')
     } catch (err) {
       setEditorError(err instanceof Error ? err.message : 'Failed to save script changes')
     } finally {
@@ -462,7 +540,9 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
     setEditorNotice(null)
     try {
       await Promise.all(
-        mediaAssets.map((asset) => {
+        sceneReview.map((scene, index) => {
+          const asset = getMediaAssetForScene(scene, index)
+          if (!asset) return Promise.resolve()
           const draft = mediaDrafts[asset.id]
           if (!draft) return Promise.resolve()
           return api.projects.updateAsset(project.id, asset.id, {
@@ -474,6 +554,8 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
             metadata: {
               ...getMetadataObject(asset.metadata),
               ...draft.metadata,
+              scene_index: scene.index || index + 1,
+              scene_locked: scene.locked,
               manual_override: true,
               override_updated_at: new Date().toISOString(),
             },
@@ -481,7 +563,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
         })
       )
       await refresh()
-      setEditorNotice('Media overrides saved. Rerun the timeline or preview to apply them.')
+      setEditorNotice('Media overrides saved. Rerun the timeline or preview to apply them; manual replacements stay pinned on later media reruns.')
     } catch (err) {
       setEditorError(err instanceof Error ? err.message : 'Failed to save media replacements')
     } finally {
@@ -660,7 +742,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
           {script && (
             <OutputSection
               title="✏️ Editing studio"
-              subtitle="Edit the script before the next render, review each scene, replace media manually, adjust subtitle styling, and rerun from any step."
+              subtitle="Edit the script before the next render, reorder or freeze scenes, replace media manually, review grounded facts, and rerun from any step."
               ready={!!script}
               actions={
                 <>
@@ -716,6 +798,39 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
                         className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
                       />
                     </label>
+                  </div>
+
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div>
+                        <h5 className="text-sm font-semibold text-slate-900">Grounding review</h5>
+                        <p className="text-xs text-slate-500">Use the fact bank to keep claims sourced, and freeze scenes you do not want media search to change.</p>
+                      </div>
+                    </div>
+                    {sourceFactBank.length > 0 ? (
+                      <div className="space-y-2 text-xs text-slate-700">
+                        <div>
+                          <p className="mb-1 font-semibold text-slate-800">Source fact bank</p>
+                          <ul className="list-disc space-y-1 pl-4 text-slate-600">
+                            {sourceFactBank.map((fact, index) => (
+                              <li key={`fact-bank-${index}`}><span className="font-semibold text-slate-700">F{index + 1}:</span> {fact}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        {scriptDraft.used_source_facts.length > 0 && (
+                          <div>
+                            <p className="mb-1 font-semibold text-slate-800">Facts currently used in the script</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {scriptDraft.used_source_facts.map((fact, index) => (
+                                <span key={`used-fact-${index}`} className="rounded-full bg-white px-2 py-1 text-[11px] text-slate-700">{fact}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">No extracted source fact bank is available for this project yet.</p>
+                    )}
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -792,16 +907,24 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
 
                   <div className="space-y-3">
                     {sceneReview.map((scene, index) => {
-                      const asset = mediaAssets[index]
+                      const asset = getMediaAssetForScene(scene, index)
                       const draft = asset ? mediaDrafts[asset.id] : null
+                      const draftPreviewURL = draft ? getHttpURL(draft.url) ?? getHttpURL(draft.storage_path) : null
+                      const assetPreviewURL = asset ? getHttpURL(asset.url) ?? getHttpURL(asset.storage_path) ?? getPublicMediaURL(asset.metadata) : null
+                      const mediaPreviewURL = draftPreviewURL ?? assetPreviewURL
                       return (
                         <div key={`${scene.index}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <h5 className="text-sm font-semibold text-slate-900">Scene {scene.index || index + 1}</h5>
-                              <p className="text-xs text-slate-500">Review narration, caption, visual query, and media override for this scene.</p>
+                              <p className="text-xs text-slate-500">Review narration, caption, visual query, citations, and media override for this scene.</p>
                             </div>
-                            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{formatDuration(scene.duration_sec)}</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`rounded-full px-2 py-1 text-[11px] ${scene.locked ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{scene.locked ? 'Frozen' : 'Editable'}</span>
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{formatDuration(scene.duration_sec)}</span>
+                              <StepActionButton label="↑" onClick={() => moveScene(index, 'up')} disabled={isWorking || index === 0} />
+                              <StepActionButton label="↓" onClick={() => moveScene(index, 'down')} disabled={isWorking || index === sceneReview.length - 1} />
+                            </div>
                           </div>
 
                           <div className="grid gap-3 lg:grid-cols-2">
@@ -852,7 +975,39 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
                                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                               />
                             </label>
+                            <label className="text-xs font-medium text-slate-700 lg:col-span-2">
+                              Source fact IDs (comma separated)
+                              <input
+                                value={scene.source_fact_ids.join(', ')}
+                                onChange={(event) => handleSceneChange(index, 'source_fact_ids', event.target.value.split(',').map((value) => value.trim()).filter(Boolean))}
+                                placeholder="F1, F2"
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              />
+                            </label>
                           </div>
+
+                          <label className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={scene.locked}
+                              onChange={(event) => handleSceneChange(index, 'locked', event.target.checked)}
+                            />
+                            Freeze this scene's current media during media reruns
+                          </label>
+
+                          {(scene.source_facts.length > 0 || scene.source_fact_ids.length > 0) && (
+                            <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/70 p-3 text-xs text-slate-700">
+                              <p className="font-semibold text-slate-800">Grounding used in this scene</p>
+                              {scene.source_fact_ids.length > 0 && <p className="mt-1 text-slate-600">Fact IDs: {scene.source_fact_ids.join(', ')}</p>}
+                              {scene.source_facts.length > 0 && (
+                                <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-600">
+                                  {scene.source_facts.map((fact, factIndex) => (
+                                    <li key={`${scene.index}-source-fact-${factIndex}`}>{fact}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
 
                           <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3">
                             <div className="mb-2">
@@ -899,6 +1054,15 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
                                 <div className="md:col-span-2 text-[11px] text-slate-500">
                                   Current asset: {renderInlineValue(asset.url || asset.storage_path)}
                                 </div>
+                                {mediaPreviewURL && (
+                                  <div className="md:col-span-2 overflow-hidden rounded-lg border border-slate-200 bg-black/5">
+                                    {draft?.type === 'image' || asset.type === 'image' ? (
+                                      <img src={mediaPreviewURL} alt={`Scene ${scene.index} preview`} className="max-h-48 w-full object-cover" />
+                                    ) : (
+                                      <video src={mediaPreviewURL} controls className="max-h-48 w-full bg-black" />
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <p className="text-xs text-slate-500">Media will appear here after the search step completes.</p>
@@ -1005,6 +1169,16 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
                   <div className="rounded bg-white p-2"><strong>Hook:</strong> {script.hook || '—'}</div>
                   <div className="rounded bg-white p-2"><strong>CTA:</strong> {script.cta || '—'}</div>
                 </div>
+                {normalizeScriptDraft(script)?.used_source_facts.length ? (
+                  <div className="rounded bg-emerald-50 p-2 text-xs text-emerald-800">
+                    <strong>Grounded facts used:</strong>
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {normalizeScriptDraft(script)?.used_source_facts.map((fact, index) => (
+                        <li key={`script-fact-${index}`}>{fact}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <pre className="max-h-56 overflow-auto rounded bg-slate-950 p-3 text-[11px] text-slate-100">{prettyValue(script.content_json)}</pre>
               </div>
             ) : (

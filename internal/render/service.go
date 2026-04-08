@@ -605,6 +605,63 @@ func baseTemplateID(templateID string) string {
 	return trimmed
 }
 
+func manifestSceneIndex(asset *db.Asset, fallback int) int {
+	if asset == nil || len(asset.Metadata) == 0 {
+		return fallback
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(asset.Metadata, &payload); err != nil {
+		return fallback
+	}
+	if value, ok := payload["scene_index"]; ok {
+		switch typed := value.(type) {
+		case float64:
+			if typed > 0 {
+				return int(typed)
+			}
+		case int:
+			if typed > 0 {
+				return typed
+			}
+		}
+	}
+	return fallback
+}
+
+func manifestAssetPriority(asset *db.Asset) int {
+	if asset == nil {
+		return 0
+	}
+	priority := 0
+	if len(asset.Metadata) > 0 {
+		var payload map[string]any
+		if err := json.Unmarshal(asset.Metadata, &payload); err == nil {
+			if manual, _ := payload["manual_override"].(bool); manual {
+				priority += 10
+			}
+			if locked, _ := payload["scene_locked"].(bool); locked {
+				priority += 5
+			}
+		}
+	}
+	if firstUsablePath(asset.StoragePath, asset.URL) != "" {
+		priority += 1
+	}
+	return priority
+}
+
+func mediaAssetsByScene(assets []*db.Asset) map[int]*db.Asset {
+	mapped := make(map[int]*db.Asset)
+	for index, asset := range filterRenderableAssets(assets) {
+		sceneIndex := manifestSceneIndex(asset, index+1)
+		existing := mapped[sceneIndex]
+		if existing == nil || manifestAssetPriority(asset) > manifestAssetPriority(existing) || asset.CreatedAt.After(existing.CreatedAt) {
+			mapped[sceneIndex] = asset
+		}
+	}
+	return mapped
+}
+
 func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTrack, subtitles []*db.Subtitle, script *db.Script) *api.TimelineManifest {
 	manifest := &api.TimelineManifest{
 		ProjectID:    project.ID.String(),
@@ -642,6 +699,8 @@ func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTr
 	manifest.SubtitleStyle.Bold = sc.SubtitleStyle.Bold
 
 	mediaAssets := filterRenderableAssets(assets)
+	mediaByScene := mediaAssetsByScene(assets)
+	usedFallbackMedia := map[string]bool{}
 	var cursor float64
 	for i, scene := range sc.Scenes {
 		durationSec := normalizeDuration(float64(scene.DurationSec), 5)
@@ -652,10 +711,23 @@ func buildManifest(project *db.Project, assets []*db.Asset, tracks []*db.AudioTr
 			TransitionOut: "quick_fade",
 		}
 		// Attach media
-		if i < len(mediaAssets) {
+		targetIndex := scene.Index
+		if targetIndex <= 0 {
+			targetIndex = i + 1
+		}
+		selectedAsset := mediaByScene[targetIndex]
+		if selectedAsset == nil && i < len(mediaAssets) {
+			candidate := mediaAssets[i]
+			key := candidate.ID.String()
+			if !usedFallbackMedia[key] {
+				selectedAsset = candidate
+				usedFallbackMedia[key] = true
+			}
+		}
+		if selectedAsset != nil {
 			ms.Media = api.ManifestMedia{
-				Type:    mediaAssets[i].Type,
-				Path:    firstUsablePath(mediaAssets[i].StoragePath, mediaAssets[i].URL),
+				Type:    selectedAsset.Type,
+				Path:    firstUsablePath(selectedAsset.StoragePath, selectedAsset.URL),
 				FitMode: "cover",
 			}
 		}

@@ -74,6 +74,9 @@ export interface ScriptSceneInput {
   caption: string
   visual_query: string
   overlay_style: string
+  locked?: boolean
+  source_fact_ids?: string[]
+  source_facts?: string[]
 }
 
 export interface UpdateScriptInput {
@@ -83,6 +86,7 @@ export interface UpdateScriptInput {
   language: string
   cta: string
   music_mood?: string
+  used_source_facts?: string[]
   subtitle_style?: SubtitleStyleInput
   scenes: ScriptSceneInput[]
 }

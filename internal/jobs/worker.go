@@ -348,15 +348,17 @@ func (w *Worker) handleScriptGenerate(ctx context.Context, j *db.Job) error {
 		return err
 	}
 	sourceURLs, sourceNotes := sourceMaterialContextFromAssets(assets)
+	sourceFacts := collectGroundingFactsFromAssets(assets)
 
 	req := content.GenerateRequest{
-		Topic:       project.Topic,
-		Platform:    project.Platform,
-		DurationSec: project.DurationSec,
-		Tone:        project.Tone,
-		Language:    project.Language,
-		SourceURLs:  sourceURLs,
-		SourceNotes: sourceNotes,
+		Topic:          project.Topic,
+		Platform:       project.Platform,
+		DurationSec:    project.DurationSec,
+		Tone:           project.Tone,
+		Language:       project.Language,
+		SourceURLs:     sourceURLs,
+		SourceNotes:    sourceNotes,
+		GroundingFacts: sourceFacts,
 	}
 	script, err := w.content.Generate(ctx, req)
 	if err != nil {
@@ -402,7 +404,11 @@ func (w *Worker) handleMediaSearch(ctx context.Context, j *db.Job) error {
 	if err != nil {
 		return err
 	}
-	assets, err := w.media.SearchAssets(ctx, j.ProjectID, script.ContentJSON)
+	existingAssets, err := w.db.GetAssets(ctx, j.ProjectID)
+	if err != nil {
+		return err
+	}
+	assets, err := w.media.SearchAssets(ctx, j.ProjectID, script.ContentJSON, existingAssets...)
 	if err != nil {
 		return err
 	}
@@ -588,6 +594,31 @@ func sourceMaterialContextFromAssets(assets []*db.Asset) ([]string, string) {
 	}
 
 	return urls, strings.Join(notes, "\n\n")
+}
+
+func collectGroundingFactsFromAssets(assets []*db.Asset) []string {
+	facts := make([]string, 0)
+	seen := map[string]bool{}
+	for _, asset := range assets {
+		if asset == nil || len(asset.Metadata) == 0 {
+			continue
+		}
+		var payload struct {
+			GroundingFacts []string `json:"grounding_facts"`
+		}
+		if err := json.Unmarshal(asset.Metadata, &payload); err != nil {
+			continue
+		}
+		for _, raw := range payload.GroundingFacts {
+			fact := strings.TrimSpace(raw)
+			if fact == "" || seen[fact] {
+				continue
+			}
+			seen[fact] = true
+			facts = append(facts, fact)
+		}
+	}
+	return facts
 }
 
 func sourceMaterialAlreadyFetched(asset *db.Asset) bool {
