@@ -32,12 +32,16 @@ interface ProjectCardProps {
   defaultShowOutputs?: boolean
 }
 
+type WorkspacePanel = 'editor' | 'remotion'
+
 interface OutputSectionProps {
   title: string
   subtitle: string
   ready: boolean
   actions?: ReactNode
   children: ReactNode
+  fullscreen?: boolean
+  onToggleFullscreen?: () => void
 }
 
 type SubtitleStyleDraft = {
@@ -82,25 +86,37 @@ type MediaOverrideDraft = {
   metadata: Record<string, unknown>
 }
 
-function OutputSection({ title, subtitle, ready, actions, children }: OutputSectionProps) {
+function OutputSection({ title, subtitle, ready, actions, children, fullscreen = false, onToggleFullscreen }: OutputSectionProps) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
-          <p className="text-xs text-slate-500">{subtitle}</p>
+    <div className={fullscreen ? 'fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-3 md:p-5' : ''}>
+      <section className={fullscreen ? 'mx-auto min-h-[calc(100vh-1.5rem)] max-w-7xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl' : 'rounded-xl border border-slate-200 bg-slate-50/80 p-3'}>
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+            <p className="text-xs text-slate-500">{subtitle}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {actions}
+            {onToggleFullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                {fullscreen ? 'Exit full screen' : 'Full screen'}
+              </button>
+            )}
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
+            >
+              {ready ? 'Ready' : 'Waiting'}
+            </span>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {actions}
-          <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
-          >
-            {ready ? 'Ready' : 'Waiting'}
-          </span>
-        </div>
-      </div>
-      {children}
-    </section>
+        {fullscreen && <p className="mb-2 text-[11px] text-slate-500">Press Esc to exit full screen.</p>}
+        {children}
+      </section>
+    </div>
   )
 }
 
@@ -278,6 +294,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
   const [showOutputs, setShowOutputs] = useState(defaultShowOutputs || project.status === 'processing' || project.status === 'failed')
   const [showEditor, setShowEditor] = useState(false)
   const [showRemotionWorkspace, setShowRemotionWorkspace] = useState(false)
+  const [fullscreenPanel, setFullscreenPanel] = useState<WorkspacePanel | null>(null)
   const [scriptDraft, setScriptDraft] = useState<ScriptDraft | null>(null)
   const [mediaDrafts, setMediaDrafts] = useState<Record<string, MediaOverrideDraft>>({})
   const [editorNotice, setEditorNotice] = useState<string | null>(null)
@@ -403,6 +420,30 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
     setMediaDrafts((current) => (Object.keys(current).length > 0 ? current : makeMediaOverrideDrafts(mediaAssets)))
   }, [showEditor, script, mediaAssets])
 
+  useEffect(() => {
+    if (!fullscreenPanel) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setFullscreenPanel(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [fullscreenPanel])
+
+  const toggleFullscreenPanel = (panel: WorkspacePanel) => {
+    setShowOutputs(true)
+    setFullscreenPanel((current) => (current === panel ? null : panel))
+  }
+
   const resetEditorFromOutputs = () => {
     setScriptDraft(normalizeScriptDraft(script))
     setMediaDrafts(makeMediaOverrideDrafts(mediaAssets))
@@ -419,6 +460,8 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
         setMediaDrafts(makeMediaOverrideDrafts(mediaAssets))
         setEditorNotice(null)
         setEditorError(null)
+      } else {
+        setFullscreenPanel((current) => (current === 'editor' ? null : current))
       }
       return next
     })
@@ -426,7 +469,13 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
 
   const toggleRemotionWorkspace = () => {
     setShowOutputs(true)
-    setShowRemotionWorkspace((value) => !value)
+    setShowRemotionWorkspace((value) => {
+      const next = !value
+      if (!next) {
+        setFullscreenPanel((current) => (current === 'remotion' ? null : current))
+      }
+      return next
+    })
   }
 
   const handleSceneChange = (sceneIndex: number, field: keyof SceneDraft, value: string | number | boolean | string[]) => {
@@ -761,6 +810,8 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
               title="✏️ Editing studio"
               subtitle="Edit the script before the next render, reorder or freeze scenes, replace media manually, review grounded facts, and rerun from any step."
               ready={!!script}
+              fullscreen={fullscreenPanel === 'editor'}
+              onToggleFullscreen={showEditor ? () => toggleFullscreenPanel('editor') : undefined}
               actions={
                 <>
                   <StepActionButton
@@ -1107,13 +1158,15 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
 
           {(script || manifestAsset) && (
             <OutputSection
-              title="🎞️ Remotion editor"
-              subtitle="Starter-style React timeline workspace synchronized with your scenes, captions, and audio tracks."
+              title="🎞️ Remotion studio"
+              subtitle="Rich editing workspace with a preview canvas, scene strip, zoomable timeline, and inspector."
               ready={!!script || !!manifestAsset}
+              fullscreen={fullscreenPanel === 'remotion'}
+              onToggleFullscreen={showRemotionWorkspace ? () => toggleFullscreenPanel('remotion') : undefined}
               actions={
                 <>
                   <StepActionButton
-                    label={showRemotionWorkspace ? 'Hide workspace' : 'Open workspace'}
+                    label={showRemotionWorkspace ? 'Hide studio' : 'Open studio'}
                     onClick={toggleRemotionWorkspace}
                     tone="primary"
                   />
@@ -1135,7 +1188,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
                   renders={displayRenders}
                 />
               ) : (
-                <p className="text-xs text-slate-600">Open the Remotion workspace to review a synchronized player + multi-track timeline for this project and hand off to the official Remotion Studio flow.</p>
+                <p className="text-xs text-slate-600">Open the Remotion studio to review a cinematic preview, scene-by-scene strip, multi-track timeline, and inspector before handing off to full Remotion Studio.</p>
               )}
             </OutputSection>
           )}

@@ -489,7 +489,7 @@ export function DashboardPage() {
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-sm">
               <p className="text-base font-semibold text-slate-900">Choose a project to open its workspace.</p>
-              <p className="mt-1 text-sm text-slate-500">Your step outputs, editor, and Remotion timeline will open here.</p>
+              <p className="mt-1 text-sm text-slate-500">Your step outputs, editing studio, and rich Remotion timeline will open here.</p>
             </div>
           )}
         </div>
