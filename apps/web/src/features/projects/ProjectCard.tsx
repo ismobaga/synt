@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { PipelineProgress } from '../../components/ui/PipelineProgress'
 import { StatusBadge } from '../../components/ui/StatusBadge'
+import { ProjectRemotionEditor } from '../remotion/ProjectRemotionEditor'
 import { useProjectOutputs } from '../../hooks/useProjectOutputs'
 import { useProjectStatus } from '../../hooks/useProjectStatus'
 import { api, type AssetRecord, type Project, type RerunStep, type ScriptRecord, type UpdateScriptInput } from '../../lib/api'
@@ -28,6 +29,7 @@ interface ProjectCardProps {
   onDelete: (id: string) => void
   onRefreshProjects?: () => void | Promise<void>
   isGenerating: boolean
+  defaultShowOutputs?: boolean
 }
 
 interface OutputSectionProps {
@@ -272,9 +274,10 @@ function getHttpURL(value?: string | null) {
   return value.startsWith('http://') || value.startsWith('https://') ? value : null
 }
 
-export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, isGenerating }: ProjectCardProps) {
-  const [showOutputs, setShowOutputs] = useState(project.status === 'processing' || project.status === 'failed')
+export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, isGenerating, defaultShowOutputs = false }: ProjectCardProps) {
+  const [showOutputs, setShowOutputs] = useState(defaultShowOutputs || project.status === 'processing' || project.status === 'failed')
   const [showEditor, setShowEditor] = useState(false)
+  const [showRemotionWorkspace, setShowRemotionWorkspace] = useState(false)
   const [scriptDraft, setScriptDraft] = useState<ScriptDraft | null>(null)
   const [mediaDrafts, setMediaDrafts] = useState<Record<string, MediaOverrideDraft>>({})
   const [editorNotice, setEditorNotice] = useState<string | null>(null)
@@ -421,6 +424,11 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
     })
   }
 
+  const toggleRemotionWorkspace = () => {
+    setShowOutputs(true)
+    setShowRemotionWorkspace((value) => !value)
+  }
+
   const handleSceneChange = (sceneIndex: number, field: keyof SceneDraft, value: string | number | boolean | string[]) => {
     setScriptDraft((current) => {
       if (!current) return current
@@ -453,7 +461,7 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
       const targetIndex = direction === 'up' ? sceneIndex - 1 : sceneIndex + 1
       if (targetIndex < 0 || targetIndex >= current.scenes.length) return current
       const scenes = [...current.scenes]
-      ;[scenes[sceneIndex], scenes[targetIndex]] = [scenes[targetIndex], scenes[sceneIndex]]
+        ;[scenes[sceneIndex], scenes[targetIndex]] = [scenes[targetIndex], scenes[sceneIndex]]
       const normalizedScenes = scenes.map((scene, index) => ({ ...scene, index: index + 1 }))
       return {
         ...current,
@@ -712,6 +720,15 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
             className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
           >
             {showEditor ? 'Close editor' : '✏️ Editing studio'}
+          </button>
+        )}
+
+        {(script || manifestAsset) && (
+          <button
+            onClick={toggleRemotionWorkspace}
+            className="rounded-lg border border-fuchsia-200 px-3 py-1.5 text-xs font-medium text-fuchsia-700 transition-colors hover:bg-fuchsia-50"
+          >
+            {showRemotionWorkspace ? 'Close Remotion editor' : '🎞️ Remotion editor'}
           </button>
         )}
 
@@ -1084,6 +1101,41 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
                 </div>
               ) : (
                 <p className="text-xs text-slate-600">Open the editor to review the script before the next render, adjust each scene, replace media manually, and tune caption styling.</p>
+              )}
+            </OutputSection>
+          )}
+
+          {(script || manifestAsset) && (
+            <OutputSection
+              title="🎞️ Remotion editor"
+              subtitle="Starter-style React timeline workspace synchronized with your scenes, captions, and audio tracks."
+              ready={!!script || !!manifestAsset}
+              actions={
+                <>
+                  <StepActionButton
+                    label={showRemotionWorkspace ? 'Hide workspace' : 'Open workspace'}
+                    onClick={toggleRemotionWorkspace}
+                    tone="primary"
+                  />
+                  <StepActionButton
+                    label={rerunningStep === 'timeline' ? 'Queueing…' : 'Rebuild timeline'}
+                    onClick={() => void handleRerunStep('timeline')}
+                    disabled={isWorking}
+                  />
+                </>
+              }
+            >
+              {showRemotionWorkspace ? (
+                <ProjectRemotionEditor
+                  project={project}
+                  script={script}
+                  manifestAsset={manifestAsset}
+                  audio={audio}
+                  subtitles={subtitles}
+                  renders={displayRenders}
+                />
+              ) : (
+                <p className="text-xs text-slate-600">Open the Remotion workspace to review a synchronized player + multi-track timeline for this project and hand off to the official Remotion Studio flow.</p>
               )}
             </OutputSection>
           )}
