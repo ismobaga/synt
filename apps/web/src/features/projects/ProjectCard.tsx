@@ -89,31 +89,33 @@ type MediaOverrideDraft = {
 function OutputSection({ title, subtitle, ready, actions, children, fullscreen = false, onToggleFullscreen }: OutputSectionProps) {
   return (
     <div className={fullscreen ? 'fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-3 md:p-5' : ''}>
-      <section className={fullscreen ? 'mx-auto min-h-[calc(100vh-1.5rem)] max-w-7xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl' : 'rounded-xl border border-slate-200 bg-slate-50/80 p-3'}>
-        <div className="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
-            <p className="text-xs text-slate-500">{subtitle}</p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {actions}
-            {onToggleFullscreen && (
-              <button
-                type="button"
-                onClick={onToggleFullscreen}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+      <section className={fullscreen ? 'mx-auto min-h-[calc(100vh-1.5rem)] max-w-7xl rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl' : 'overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm'}>
+        <div className="mb-3 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-violet-50/60 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+              <p className="text-xs text-slate-500">{subtitle}</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {actions}
+              {onToggleFullscreen && (
+                <button
+                  type="button"
+                  onClick={onToggleFullscreen}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  {fullscreen ? 'Exit full screen' : 'Full screen'}
+                </button>
+              )}
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
               >
-                {fullscreen ? 'Exit full screen' : 'Full screen'}
-              </button>
-            )}
-            <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
-            >
-              {ready ? 'Ready' : 'Waiting'}
-            </span>
+                {ready ? 'Ready' : 'Waiting'}
+              </span>
+            </div>
           </div>
+          {fullscreen && <p className="mt-2 text-[11px] text-slate-500">Press Esc to exit full screen.</p>}
         </div>
-        {fullscreen && <p className="mb-2 text-[11px] text-slate-500">Press Esc to exit full screen.</p>}
         {children}
       </section>
     </div>
@@ -136,9 +138,9 @@ function StepActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${tone === 'primary'
-        ? 'bg-violet-600 text-white hover:bg-violet-700 disabled:bg-violet-300'
-        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:text-slate-400'
+      className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition shadow-sm ${tone === 'primary'
+        ? 'border-violet-500 bg-violet-600 text-white hover:bg-violet-700 disabled:border-violet-300 disabled:bg-violet-300'
+        : 'border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50 disabled:text-slate-400'
         } disabled:cursor-not-allowed`}
     >
       {label}
@@ -828,326 +830,409 @@ export function ProjectCard({ project, onGenerate, onDelete, onRefreshProjects, 
               }
             >
               {showEditor && scriptDraft ? (
-                <div className="space-y-3">
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <label className="text-xs font-medium text-slate-700">
-                      Title
-                      <input
-                        value={scriptDraft.title}
-                        onChange={(event) => setScriptDraft((current) => current ? { ...current, title: event.target.value } : current)}
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-slate-700">
-                      Duration (seconds)
-                      <input
-                        type="number"
-                        min={5}
-                        value={scriptDraft.duration_sec}
-                        onChange={(event) => setScriptDraft((current) => current ? { ...current, duration_sec: Number(event.target.value) || current.duration_sec } : current)}
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-slate-700 lg:col-span-2">
-                      Hook
-                      <textarea
-                        value={scriptDraft.hook}
-                        onChange={(event) => setScriptDraft((current) => current ? { ...current, hook: event.target.value } : current)}
-                        rows={2}
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-slate-700 lg:col-span-2">
-                      CTA
-                      <textarea
-                        value={scriptDraft.cta}
-                        onChange={(event) => setScriptDraft((current) => current ? { ...current, cta: event.target.value } : current)}
-                        rows={2}
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="space-y-4">
+                  <div className="overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-r from-slate-950 via-violet-950 to-fuchsia-900 text-white shadow-sm">
+                    <div className="grid gap-4 px-4 py-4 xl:grid-cols-[1.15fr_0.85fr]">
                       <div>
-                        <h5 className="text-sm font-semibold text-slate-900">Grounding review</h5>
-                        <p className="text-xs text-slate-500">Use the fact bank to keep claims sourced, and freeze scenes you do not want media search to change.</p>
-                      </div>
-                    </div>
-                    {sourceFactBank.length > 0 ? (
-                      <div className="space-y-2 text-xs text-slate-700">
-                        <div>
-                          <p className="mb-1 font-semibold text-slate-800">Source fact bank</p>
-                          <ul className="list-disc space-y-1 pl-4 text-slate-600">
-                            {sourceFactBank.map((fact, index) => (
-                              <li key={`fact-bank-${index}`}><span className="font-semibold text-slate-700">F{index + 1}:</span> {fact}</li>
-                            ))}
-                          </ul>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-200">Studio redesign</p>
+                        <h5 className="mt-1 text-xl font-semibold">Refine script, pacing, grounding, and media from one workspace</h5>
+                        <p className="mt-1 max-w-2xl text-sm text-slate-200/90">
+                          Keep the story tight, keep claims sourced, and lock the scenes that should not move while you rerender.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                          <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1">{sceneReview.length} scenes</span>
+                          <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1">{Math.round(scriptDraft.duration_sec)}s target</span>
+                          <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1">{scriptDraft.used_source_facts.length} grounded facts</span>
                         </div>
-                        {scriptDraft.used_source_facts.length > 0 && (
-                          <div>
-                            <p className="mb-1 font-semibold text-slate-800">Facts currently used in the script</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {scriptDraft.used_source_facts.map((fact, index) => (
-                                <span key={`used-fact-${index}`} className="rounded-full bg-white px-2 py-1 text-[11px] text-slate-700">{fact}</span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-500">No extracted source fact bank is available for this project yet.</p>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div>
-                        <h5 className="text-sm font-semibold text-slate-900">Subtitle & style adjustments</h5>
-                        <p className="text-xs text-slate-500">These settings are applied to the next render.</p>
+                      <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-300">Hook</div>
+                          <div className="mt-1 line-clamp-3 text-sm font-semibold">{scriptDraft.hook || 'Add a stronger opening hook'}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-300">CTA</div>
+                          <div className="mt-1 line-clamp-3 text-sm font-semibold">{scriptDraft.cta || 'Add a closing CTA'}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-300">Locked scenes</div>
+                          <div className="mt-1 text-lg font-semibold">{sceneReview.filter((scene) => scene.locked).length}</div>
+                          <div className="text-xs text-slate-300">Protected during media reruns</div>
+                        </div>
                       </div>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                      <label className="text-xs font-medium text-slate-700">
-                        Preset
-                        <select
-                          value={scriptDraft.subtitle_style.preset}
-                          onChange={(event) => handleSubtitleStyleChange('preset', event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        >
-                          <option value="clean">Clean</option>
-                          <option value="bold">Bold</option>
-                          <option value="hook">Hook</option>
-                        </select>
-                      </label>
-                      <label className="text-xs font-medium text-slate-700">
-                        Position
-                        <select
-                          value={scriptDraft.subtitle_style.position}
-                          onChange={(event) => handleSubtitleStyleChange('position', event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        >
-                          <option value="bottom">Bottom</option>
-                          <option value="center">Center</option>
-                          <option value="top">Top</option>
-                        </select>
-                      </label>
-                      <label className="text-xs font-medium text-slate-700">
-                        Font size
-                        <input
-                          type="number"
-                          min={10}
-                          max={40}
-                          value={scriptDraft.subtitle_style.font_size}
-                          onChange={(event) => handleSubtitleStyleChange('font_size', Number(event.target.value) || 14)}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </label>
-                      <label className="text-xs font-medium text-slate-700">
-                        Text color
-                        <input
-                          type="color"
-                          value={scriptDraft.subtitle_style.primary_color}
-                          onChange={(event) => handleSubtitleStyleChange('primary_color', event.target.value)}
-                          className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-2"
-                        />
-                      </label>
-                      <label className="text-xs font-medium text-slate-700">
-                        Outline color
-                        <input
-                          type="color"
-                          value={scriptDraft.subtitle_style.outline_color}
-                          onChange={(event) => handleSubtitleStyleChange('outline_color', event.target.value)}
-                          className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-2"
-                        />
-                      </label>
-                    </div>
-                    <label className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={scriptDraft.subtitle_style.bold}
-                        onChange={(event) => handleSubtitleStyleChange('bold', event.target.checked)}
-                      />
-                      Use bold subtitle emphasis
-                    </label>
                   </div>
 
-                  <div className="space-y-3">
-                    {sceneReview.map((scene, index) => {
-                      const asset = getMediaAssetForScene(scene, index)
-                      const draft = asset ? mediaDrafts[asset.id] : null
-                      const draftPreviewURL = draft ? getHttpURL(draft.url) ?? getHttpURL(draft.storage_path) : null
-                      const assetPreviewURL = asset ? getHttpURL(asset.url) ?? getHttpURL(asset.storage_path) ?? getPublicMediaURL(asset.metadata) : null
-                      const mediaPreviewURL = draftPreviewURL ?? assetPreviewURL
-                      return (
-                        <div key={`${scene.index}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <h5 className="text-sm font-semibold text-slate-900">Scene {scene.index || index + 1}</h5>
-                              <p className="text-xs text-slate-500">Review narration, caption, visual query, citations, and media override for this scene.</p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded-full px-2 py-1 text-[11px] ${scene.locked ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{scene.locked ? 'Frozen' : 'Editable'}</span>
-                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{formatDuration(scene.duration_sec)}</span>
-                              <StepActionButton label="↑" onClick={() => moveScene(index, 'up')} disabled={isWorking || index === 0} />
-                              <StepActionButton label="↓" onClick={() => moveScene(index, 'down')} disabled={isWorking || index === sceneReview.length - 1} />
-                            </div>
-                          </div>
-
-                          <div className="grid gap-3 lg:grid-cols-2">
-                            <label className="text-xs font-medium text-slate-700 lg:col-span-2">
-                              Narration
-                              <textarea
-                                value={scene.narration}
-                                onChange={(event) => handleSceneChange(index, 'narration', event.target.value)}
-                                rows={3}
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <label className="text-xs font-medium text-slate-700">
-                              Caption
-                              <input
-                                value={scene.caption}
-                                onChange={(event) => handleSceneChange(index, 'caption', event.target.value)}
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <label className="text-xs font-medium text-slate-700">
-                              Overlay style
-                              <select
-                                value={scene.overlay_style}
-                                onChange={(event) => handleSceneChange(index, 'overlay_style', event.target.value)}
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              >
-                                <option value="hook">Hook</option>
-                                <option value="main">Main</option>
-                                <option value="cta">CTA</option>
-                              </select>
-                            </label>
-                            <label className="text-xs font-medium text-slate-700">
-                              Visual query
-                              <input
-                                value={scene.visual_query}
-                                onChange={(event) => handleSceneChange(index, 'visual_query', event.target.value)}
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <label className="text-xs font-medium text-slate-700">
-                              Scene length (sec)
-                              <input
-                                type="number"
-                                min={1}
-                                value={scene.duration_sec}
-                                onChange={(event) => handleSceneChange(index, 'duration_sec', Number(event.target.value) || 1)}
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </label>
-                            <label className="text-xs font-medium text-slate-700 lg:col-span-2">
-                              Source fact IDs (comma separated)
-                              <input
-                                value={scene.source_fact_ids.join(', ')}
-                                onChange={(event) => handleSceneChange(index, 'source_fact_ids', event.target.value.split(',').map((value) => value.trim()).filter(Boolean))}
-                                placeholder="F1, F2"
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                              />
-                            </label>
-                          </div>
-
-                          <label className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+                  <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                    <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                        <div className="mb-2">
+                          <h5 className="text-sm font-semibold text-slate-900">Project script</h5>
+                          <p className="text-xs text-slate-500">Tune the top-level structure before editing individual scenes.</p>
+                        </div>
+                        <div className="grid gap-3">
+                          <label className="text-xs font-medium text-slate-700">
+                            Title
                             <input
-                              type="checkbox"
-                              checked={scene.locked}
-                              onChange={(event) => handleSceneChange(index, 'locked', event.target.checked)}
+                              value={scriptDraft.title}
+                              onChange={(event) => setScriptDraft((current) => current ? { ...current, title: event.target.value } : current)}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
                             />
-                            Freeze this scene's current media during media reruns
                           </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            Duration (seconds)
+                            <input
+                              type="number"
+                              min={5}
+                              value={scriptDraft.duration_sec}
+                              onChange={(event) => setScriptDraft((current) => current ? { ...current, duration_sec: Number(event.target.value) || current.duration_sec } : current)}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                            />
+                          </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            Hook
+                            <textarea
+                              value={scriptDraft.hook}
+                              onChange={(event) => setScriptDraft((current) => current ? { ...current, hook: event.target.value } : current)}
+                              rows={3}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                            />
+                          </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            CTA
+                            <textarea
+                              value={scriptDraft.cta}
+                              onChange={(event) => setScriptDraft((current) => current ? { ...current, cta: event.target.value } : current)}
+                              rows={3}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                            />
+                          </label>
+                        </div>
+                      </div>
 
-                          {(scene.source_facts.length > 0 || scene.source_fact_ids.length > 0) && (
-                            <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/70 p-3 text-xs text-slate-700">
-                              <p className="font-semibold text-slate-800">Grounding used in this scene</p>
-                              {scene.source_fact_ids.length > 0 && <p className="mt-1 text-slate-600">Fact IDs: {scene.source_fact_ids.join(', ')}</p>}
-                              {scene.source_facts.length > 0 && (
-                                <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-600">
-                                  {scene.source_facts.map((fact, factIndex) => (
-                                    <li key={`${scene.index}-source-fact-${factIndex}`}>{fact}</li>
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
+                        <div className="mb-2">
+                          <h5 className="text-sm font-semibold text-slate-900">Grounding review</h5>
+                          <p className="text-xs text-slate-500">Use the fact bank to keep claims sourced and trustworthy.</p>
+                        </div>
+                        {sourceFactBank.length > 0 ? (
+                          <div className="space-y-3 text-xs text-slate-700">
+                            <div>
+                              <p className="mb-1 font-semibold text-slate-800">Source fact bank</p>
+                              <ul className="list-disc space-y-1 pl-4 text-slate-600">
+                                {sourceFactBank.map((fact, index) => (
+                                  <li key={`fact-bank-${index}`}><span className="font-semibold text-slate-700">F{index + 1}:</span> {fact}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            {scriptDraft.used_source_facts.length > 0 && (
+                              <div>
+                                <p className="mb-1 font-semibold text-slate-800">Facts used in the current cut</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {scriptDraft.used_source_facts.map((fact, index) => (
+                                    <span key={`used-fact-${index}`} className="rounded-full bg-white px-2 py-1 text-[11px] text-slate-700">{fact}</span>
                                   ))}
-                                </ul>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3">
-                            <div className="mb-2">
-                              <h6 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Manual media replacement</h6>
-                              <p className="text-xs text-slate-500">Paste your own image/video URL or local path and rerun from the timeline.</p>
-                            </div>
-                            {asset && draft ? (
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <label className="text-xs font-medium text-slate-700">
-                                  Media type
-                                  <select
-                                    value={draft.type}
-                                    onChange={(event) => handleMediaDraftChange(asset.id, 'type', event.target.value)}
-                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                  >
-                                    <option value="video">Video</option>
-                                    <option value="image">Image</option>
-                                  </select>
-                                </label>
-                                <label className="text-xs font-medium text-slate-700">
-                                  Provider label
-                                  <input
-                                    value={draft.provider}
-                                    onChange={(event) => handleMediaDraftChange(asset.id, 'provider', event.target.value)}
-                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                  />
-                                </label>
-                                <label className="text-xs font-medium text-slate-700 md:col-span-2">
-                                  Media URL or local path
-                                  <input
-                                    value={draft.url}
-                                    onChange={(event) => handleMediaDraftChange(asset.id, 'url', event.target.value)}
-                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                  />
-                                </label>
-                                <label className="text-xs font-medium text-slate-700 md:col-span-2">
-                                  Prepared storage path (optional)
-                                  <input
-                                    value={draft.storage_path}
-                                    onChange={(event) => handleMediaDraftChange(asset.id, 'storage_path', event.target.value)}
-                                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                  />
-                                </label>
-                                <div className="md:col-span-2 text-[11px] text-slate-500">
-                                  Current asset: {renderInlineValue(asset.url || asset.storage_path)}
                                 </div>
-                                {mediaPreviewURL && (
-                                  <div className="md:col-span-2 overflow-hidden rounded-lg border border-slate-200 bg-black/5">
-                                    {draft?.type === 'image' || asset.type === 'image' ? (
-                                      <img src={mediaPreviewURL} alt={`Scene ${scene.index} preview`} className="max-h-48 w-full object-cover" />
-                                    ) : (
-                                      <video src={mediaPreviewURL} controls className="max-h-48 w-full bg-black" />
-                                    )}
-                                  </div>
-                                )}
                               </div>
-                            ) : (
-                              <p className="text-xs text-slate-500">Media will appear here after the search step completes.</p>
                             )}
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                        ) : (
+                          <p className="text-xs text-slate-500">No extracted source fact bank is available for this project yet.</p>
+                        )}
+                      </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <StepActionButton label={savingScript ? 'Saving…' : 'Save script edits'} onClick={() => void handleSaveScript()} disabled={isWorking} tone="primary" />
-                    <StepActionButton label={savingMedia ? 'Saving media…' : 'Save media overrides'} onClick={() => void handleSaveMedia()} disabled={isWorking || mediaAssets.length === 0} />
-                    <StepActionButton label="Reset editor" onClick={resetEditorFromOutputs} disabled={isWorking} />
-                    <StepActionButton label={rerunningStep === 'script' ? 'Queueing…' : 'Rerun from script'} onClick={() => void handleRerunStep('script')} disabled={isWorking} />
-                    <StepActionButton label={rerunningStep === 'preview' ? 'Queueing…' : 'Render preview'} onClick={() => void handleRerunStep('preview')} disabled={isWorking} />
-                    <StepActionButton label={rerunningStep === 'final' ? 'Queueing…' : 'Render final'} onClick={() => void handleRerunStep('final')} disabled={isWorking} />
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                        <div className="mb-2">
+                          <h5 className="text-sm font-semibold text-slate-900">Subtitle styling</h5>
+                          <p className="text-xs text-slate-500">These settings apply to the next render pass.</p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                          <label className="text-xs font-medium text-slate-700">
+                            Preset
+                            <select
+                              value={scriptDraft.subtitle_style.preset}
+                              onChange={(event) => handleSubtitleStyleChange('preset', event.target.value)}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                            >
+                              <option value="clean">Clean</option>
+                              <option value="bold">Bold</option>
+                              <option value="hook">Hook</option>
+                            </select>
+                          </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            Position
+                            <select
+                              value={scriptDraft.subtitle_style.position}
+                              onChange={(event) => handleSubtitleStyleChange('position', event.target.value)}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                            >
+                              <option value="bottom">Bottom</option>
+                              <option value="center">Center</option>
+                              <option value="top">Top</option>
+                            </select>
+                          </label>
+                          <label className="text-xs font-medium text-slate-700">
+                            Font size
+                            <input
+                              type="number"
+                              min={10}
+                              max={40}
+                              value={scriptDraft.subtitle_style.font_size}
+                              onChange={(event) => handleSubtitleStyleChange('font_size', Number(event.target.value) || 14)}
+                              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                            />
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="text-xs font-medium text-slate-700">
+                              Text color
+                              <input
+                                type="color"
+                                value={scriptDraft.subtitle_style.primary_color}
+                                onChange={(event) => handleSubtitleStyleChange('primary_color', event.target.value)}
+                                className="mt-1 h-10 w-full rounded-xl border border-slate-300 px-2"
+                              />
+                            </label>
+                            <label className="text-xs font-medium text-slate-700">
+                              Outline color
+                              <input
+                                type="color"
+                                value={scriptDraft.subtitle_style.outline_color}
+                                onChange={(event) => handleSubtitleStyleChange('outline_color', event.target.value)}
+                                className="mt-1 h-10 w-full rounded-xl border border-slate-300 px-2"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        <label className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={scriptDraft.subtitle_style.bold}
+                            onChange={(event) => handleSubtitleStyleChange('bold', event.target.checked)}
+                          />
+                          Use bold subtitle emphasis
+                        </label>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <h5 className="text-sm font-semibold text-slate-900">Studio actions</h5>
+                        <p className="mt-1 text-xs text-slate-500">Save once, then rerender only the step you need.</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <StepActionButton label={savingScript ? 'Saving…' : 'Save script edits'} onClick={() => void handleSaveScript()} disabled={isWorking} tone="primary" />
+                          <StepActionButton label={savingMedia ? 'Saving media…' : 'Save media overrides'} onClick={() => void handleSaveMedia()} disabled={isWorking || mediaAssets.length === 0} />
+                          <StepActionButton label="Reset editor" onClick={resetEditorFromOutputs} disabled={isWorking} />
+                          <StepActionButton label={rerunningStep === 'script' ? 'Queueing…' : 'Rerun from script'} onClick={() => void handleRerunStep('script')} disabled={isWorking} />
+                          <StepActionButton label={rerunningStep === 'preview' ? 'Queueing…' : 'Render preview'} onClick={() => void handleRerunStep('preview')} disabled={isWorking} />
+                          <StepActionButton label={rerunningStep === 'final' ? 'Queueing…' : 'Render final'} onClick={() => void handleRerunStep('final')} disabled={isWorking} />
+                        </div>
+                      </div>
+                    </aside>
+
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-sm font-semibold text-slate-900">Scene board</h5>
+                            <p className="text-xs text-slate-500">Each scene card now groups script, grounding, and media decisions into one place.</p>
+                          </div>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{sceneReview.length} editable scenes</span>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                          {sceneReview.map((scene, index) => (
+                            <div key={`scene-pill-${scene.index}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-slate-900">Scene {scene.index || index + 1}</span>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${scene.locked ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{scene.locked ? 'Frozen' : 'Live'}</span>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-slate-600">{scene.caption || 'Add a caption for this scene'}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {sceneReview.map((scene, index) => {
+                          const asset = getMediaAssetForScene(scene, index)
+                          const draft = asset ? mediaDrafts[asset.id] : null
+                          const draftPreviewURL = draft ? getHttpURL(draft.url) ?? getHttpURL(draft.storage_path) : null
+                          const assetPreviewURL = asset ? getHttpURL(asset.url) ?? getHttpURL(asset.storage_path) ?? getPublicMediaURL(asset.metadata) : null
+                          const mediaPreviewURL = draftPreviewURL ?? assetPreviewURL
+                          return (
+                            <article key={`${scene.index}-${index}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                              <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">Scene {scene.index || index + 1}</span>
+                                      <span className={`rounded-full px-2 py-1 text-[11px] ${scene.locked ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{scene.locked ? 'Frozen' : 'Editable'}</span>
+                                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{formatDuration(scene.duration_sec)}</span>
+                                    </div>
+                                    <h6 className="mt-2 text-base font-semibold text-slate-900">{scene.caption || `Scene ${scene.index || index + 1}`}</h6>
+                                    <p className="text-xs text-slate-500">Review narration, on-screen caption, source grounding, and the pinned media for this shot.</p>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <StepActionButton label="↑ Move" onClick={() => moveScene(index, 'up')} disabled={isWorking || index === 0} />
+                                    <StepActionButton label="↓ Move" onClick={() => moveScene(index, 'down')} disabled={isWorking || index === sceneReview.length - 1} />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="grid gap-4 p-4 xl:grid-cols-[1.15fr_0.85fr]">
+                                <div className="space-y-3">
+                                  <label className="text-xs font-medium text-slate-700">
+                                    Narration
+                                    <textarea
+                                      value={scene.narration}
+                                      onChange={(event) => handleSceneChange(index, 'narration', event.target.value)}
+                                      rows={4}
+                                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                    />
+                                  </label>
+
+                                  <div className="grid gap-3 md:grid-cols-2">
+                                    <label className="text-xs font-medium text-slate-700">
+                                      Caption
+                                      <input
+                                        value={scene.caption}
+                                        onChange={(event) => handleSceneChange(index, 'caption', event.target.value)}
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                      />
+                                    </label>
+                                    <label className="text-xs font-medium text-slate-700">
+                                      Overlay style
+                                      <select
+                                        value={scene.overlay_style}
+                                        onChange={(event) => handleSceneChange(index, 'overlay_style', event.target.value)}
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                      >
+                                        <option value="hook">Hook</option>
+                                        <option value="main">Main</option>
+                                        <option value="cta">CTA</option>
+                                      </select>
+                                    </label>
+                                    <label className="text-xs font-medium text-slate-700">
+                                      Visual query
+                                      <input
+                                        value={scene.visual_query}
+                                        onChange={(event) => handleSceneChange(index, 'visual_query', event.target.value)}
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                      />
+                                    </label>
+                                    <label className="text-xs font-medium text-slate-700">
+                                      Scene length (sec)
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={scene.duration_sec}
+                                        onChange={(event) => handleSceneChange(index, 'duration_sec', Number(event.target.value) || 1)}
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                      />
+                                    </label>
+                                    <label className="text-xs font-medium text-slate-700 md:col-span-2">
+                                      Source fact IDs (comma separated)
+                                      <input
+                                        value={scene.source_fact_ids.join(', ')}
+                                        onChange={(event) => handleSceneChange(index, 'source_fact_ids', event.target.value.split(',').map((value) => value.trim()).filter(Boolean))}
+                                        placeholder="F1, F2"
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                      />
+                                    </label>
+                                  </div>
+
+                                  {(scene.source_facts.length > 0 || scene.source_fact_ids.length > 0) && (
+                                    <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-3 text-xs text-slate-700">
+                                      <p className="font-semibold text-slate-800">Grounding used in this scene</p>
+                                      {scene.source_fact_ids.length > 0 && <p className="mt-1 text-slate-600">Fact IDs: {scene.source_fact_ids.join(', ')}</p>}
+                                      {scene.source_facts.length > 0 && (
+                                        <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-600">
+                                          {scene.source_facts.map((fact, factIndex) => (
+                                            <li key={`${scene.index}-source-fact-${factIndex}`}>{fact}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-3">
+                                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                                    <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={scene.locked}
+                                        onChange={(event) => handleSceneChange(index, 'locked', event.target.checked)}
+                                      />
+                                      Freeze this scene's current media during media reruns
+                                    </label>
+                                  </div>
+
+                                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3">
+                                    <div className="mb-2">
+                                      <h6 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Manual media replacement</h6>
+                                      <p className="text-xs text-slate-500">Paste your own image/video URL or local path and rerun from the timeline.</p>
+                                    </div>
+                                    {asset && draft ? (
+                                      <div className="space-y-3">
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                          <label className="text-xs font-medium text-slate-700">
+                                            Media type
+                                            <select
+                                              value={draft.type}
+                                              onChange={(event) => handleMediaDraftChange(asset.id, 'type', event.target.value)}
+                                              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            >
+                                              <option value="video">Video</option>
+                                              <option value="image">Image</option>
+                                            </select>
+                                          </label>
+                                          <label className="text-xs font-medium text-slate-700">
+                                            Provider label
+                                            <input
+                                              value={draft.provider}
+                                              onChange={(event) => handleMediaDraftChange(asset.id, 'provider', event.target.value)}
+                                              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+                                          <label className="text-xs font-medium text-slate-700 md:col-span-2">
+                                            Media URL or local path
+                                            <input
+                                              value={draft.url}
+                                              onChange={(event) => handleMediaDraftChange(asset.id, 'url', event.target.value)}
+                                              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+                                          <label className="text-xs font-medium text-slate-700 md:col-span-2">
+                                            Prepared storage path (optional)
+                                            <input
+                                              value={draft.storage_path}
+                                              onChange={(event) => handleMediaDraftChange(asset.id, 'storage_path', event.target.value)}
+                                              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+                                        </div>
+                                        <div className="text-[11px] text-slate-500">
+                                          Current asset: {renderInlineValue(asset.url || asset.storage_path)}
+                                        </div>
+                                        {mediaPreviewURL && (
+                                          <div className="overflow-hidden rounded-xl border border-slate-200 bg-black/5">
+                                            {draft?.type === 'image' || asset.type === 'image' ? (
+                                              <img src={mediaPreviewURL} alt={`Scene ${scene.index} preview`} className="max-h-56 w-full object-cover" />
+                                            ) : (
+                                              <video src={mediaPreviewURL} controls className="max-h-56 w-full bg-black" />
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-slate-500">Media will appear here after the search step completes.</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </article>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (

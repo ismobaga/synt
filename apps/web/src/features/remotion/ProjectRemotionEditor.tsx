@@ -285,6 +285,9 @@ export function ProjectRemotionEditor({ project, script, manifestAsset, audio, s
     const timeTicks = buildTimeTicks(model.totalDurationSec)
     const factCount = model.scenes.reduce((total, scene) => total + scene.sourceFacts.length, 0)
     const totalTracks = model.tracks.filter((track) => track.items.length > 0).length
+    const firstScene = model.scenes[0] ?? null
+    const middleScene = model.scenes[Math.max(0, Math.floor((model.scenes.length - 1) / 2))] ?? null
+    const lastScene = model.scenes[model.scenes.length - 1] ?? null
 
     return (
         <div className="space-y-4">
@@ -326,6 +329,36 @@ export function ProjectRemotionEditor({ project, script, manifestAsset, audio, s
                         <div className="mt-1 text-lg font-semibold">{factCount}</div>
                         <div className="text-xs text-slate-300">Referenced source facts across the cut</div>
                     </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                    {firstScene ? (
+                        <button
+                            type="button"
+                            onClick={() => jumpTo(firstScene.startSec, firstScene.id, 'Visuals')}
+                            className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/15"
+                        >
+                            Jump to hook
+                        </button>
+                    ) : null}
+                    {middleScene ? (
+                        <button
+                            type="button"
+                            onClick={() => jumpTo(middleScene.startSec, middleScene.id, 'Visuals')}
+                            className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/15"
+                        >
+                            Jump to middle beat
+                        </button>
+                    ) : null}
+                    {lastScene ? (
+                        <button
+                            type="button"
+                            onClick={() => jumpTo(lastScene.startSec, lastScene.id, 'Visuals')}
+                            className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/15"
+                        >
+                            Jump to CTA
+                        </button>
+                    ) : null}
                 </div>
             </div>
 
