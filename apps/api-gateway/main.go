@@ -14,6 +14,7 @@ import (
 	"github.com/ismobaga/synt/internal/db"
 	"github.com/ismobaga/synt/internal/jobs"
 	"github.com/ismobaga/synt/internal/orchestrator"
+	"github.com/ismobaga/synt/internal/publisher"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -31,7 +32,8 @@ func main() {
 
 	queue := jobs.NewRedisQueue(redisClient)
 	orch := orchestrator.New(database, queue)
-	router := api.NewRouter(database, orch)
+	pub := publisher.NewFromEnv()
+	router := api.NewRouter(database, orch, pub)
 
 	srv := &http.Server{
 		Addr:         cfg.Addr,

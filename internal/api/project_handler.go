@@ -11,12 +11,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/ismobaga/synt/internal/db"
 	"github.com/ismobaga/synt/internal/orchestrator"
+	"github.com/ismobaga/synt/internal/publisher"
 )
 
 // ProjectHandler handles project-related HTTP endpoints.
 type ProjectHandler struct {
 	db           *db.DB
 	orchestrator *orchestrator.Orchestrator
+	publisher    *publisher.Service
 }
 
 type pipelineStepDescriptor struct {
@@ -39,6 +41,7 @@ var pipelineStepDescriptors = []pipelineStepDescriptor{
 	{Stage: db.StageRenderFinal, JobType: db.JobTypeRenderFinal, Label: "Rendering final video"},
 	{Stage: db.StageRenderThumbnail, JobType: db.JobTypeRenderThumbnail, Label: "Extracting thumbnail"},
 	{Stage: db.StageFinalize, JobType: db.JobTypeProjectFinalize, Label: "Finalizing project"},
+	{Stage: db.StageYouTubePublish, JobType: db.JobTypeYouTubePublish, Label: "Publishing to YouTube"},
 }
 
 func buildProjectStatusSteps(recentJobs []*db.Job) []PipelineStepStatusResponse {
@@ -82,8 +85,8 @@ func buildProjectStatusSteps(recentJobs []*db.Job) []PipelineStepStatusResponse 
 }
 
 // NewProjectHandler creates a new ProjectHandler.
-func NewProjectHandler(database *db.DB, orch *orchestrator.Orchestrator) *ProjectHandler {
-	return &ProjectHandler{db: database, orchestrator: orch}
+func NewProjectHandler(database *db.DB, orch *orchestrator.Orchestrator, pub *publisher.Service) *ProjectHandler {
+	return &ProjectHandler{db: database, orchestrator: orch, publisher: pub}
 }
 
 func normalizeRenderEngine(value string) string {
@@ -320,11 +323,12 @@ func (h *ProjectHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req GenerateRequest
+	req.AutoRender = true
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.AutoRender = true
+		req = GenerateRequest{AutoRender: true}
 	}
 
-	if err := h.orchestrator.TriggerGeneration(r.Context(), uid, req.AutoRender); err != nil {
+	if err := h.orchestrator.TriggerGeneration(r.Context(), uid, req.AutoRender, req.AutoPublishYouTube); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to trigger generation")
 		return
 	}
@@ -686,4 +690,110 @@ func (h *ProjectHandler) GetRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, renders)
+}
+
+func latestFinalRender(renders []*db.Render) *db.Render {
+	for _, render := range renders {
+		if render != nil && render.Kind == "final" && render.Status == "done" {
+			return render
+		}
+	}
+	return nil
+}
+
+func defaultYouTubeTitle(project *db.Project) string {
+	if project == nil {
+		return "Synt Generated Video"
+	}
+	if title := strings.TrimSpace(project.Topic); title != "" {
+		return title
+	}
+	return "Synt Generated Video"
+}
+
+// PublishYouTube handles POST /v1/projects/:id/publish/youtube.
+func (h *ProjectHandler) PublishYouTube(w http.ResponseWriter, r *http.Request) {
+	if h.publisher == nil || !h.publisher.YouTubeConfigured() {
+		writeError(w, http.StatusBadRequest, "youtube publishing is not configured")
+		return
+	}
+
+	projectID, err := uuid.Parse(pathParam(r, "projects"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid project id")
+		return
+	}
+
+	project, err := h.db.GetProject(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	renders, err := h.db.GetRenders(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load renders")
+		return
+	}
+	finalRender := latestFinalRender(renders)
+	if finalRender == nil || strings.TrimSpace(finalRender.StoragePath) == "" {
+		writeError(w, http.StatusBadRequest, "no completed final render available")
+		return
+	}
+
+	var req PublishYouTubeRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	result, err := h.publisher.PublishToYouTube(r.Context(), publisher.YouTubePublishRequest{
+		VideoPath:     strings.TrimSpace(finalRender.StoragePath),
+		Title:         firstNonEmpty(strings.TrimSpace(req.Title), defaultYouTubeTitle(project)),
+		Description:   strings.TrimSpace(req.Description),
+		PrivacyStatus: strings.TrimSpace(req.PrivacyStatus),
+		Tags:          req.Tags,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "youtube publish failed: "+err.Error())
+		return
+	}
+
+	metadata, _ := json.Marshal(map[string]any{
+		"video_id":       result.VideoID,
+		"watch_url":      result.WatchURL,
+		"published_at":   result.PublishedAt.Format(time.RFC3339),
+		"publish_method": "manual",
+	})
+	asset := &db.Asset{
+		ID:          uuid.New(),
+		ProjectID:   &projectID,
+		Type:        "distribution",
+		Source:      "generated",
+		Provider:    "youtube",
+		URL:         result.WatchURL,
+		StoragePath: result.WatchURL,
+		MimeType:    "text/uri-list",
+		Metadata:    metadata,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := h.db.CreateAsset(r.Context(), asset); err != nil {
+		log.Printf("failed to persist youtube publish metadata for project %s: %v", projectID, err)
+	}
+
+	writeJSON(w, http.StatusOK, PublishYouTubeResponse{
+		Status:      "published",
+		ProjectID:   projectID.String(),
+		VideoID:     result.VideoID,
+		WatchURL:    result.WatchURL,
+		PublishedAt: result.PublishedAt.Format(time.RFC3339),
+	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

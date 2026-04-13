@@ -15,6 +15,7 @@ import (
 	"github.com/ismobaga/synt/internal/media"
 	"github.com/ismobaga/synt/internal/moderation"
 	"github.com/ismobaga/synt/internal/music"
+	"github.com/ismobaga/synt/internal/publisher"
 	"github.com/ismobaga/synt/internal/render"
 	"github.com/ismobaga/synt/internal/source"
 	"github.com/ismobaga/synt/internal/subtitle"
@@ -32,6 +33,7 @@ type Worker struct {
 	music        *music.Service
 	render       *render.Service
 	moderation   *moderation.Service
+	publisher    *publisher.Service
 	pollInterval time.Duration
 }
 
@@ -60,6 +62,7 @@ var pipelineStepDefs = []pipelineStepDef{
 	{Stage: db.StageRenderFinal, JobType: db.JobTypeRenderFinal, Label: "Rendering final video"},
 	{Stage: db.StageRenderThumbnail, JobType: db.JobTypeRenderThumbnail, Label: "Extracting thumbnail"},
 	{Stage: db.StageFinalize, JobType: db.JobTypeProjectFinalize, Label: "Finalizing project"},
+	{Stage: db.StageYouTubePublish, JobType: db.JobTypeYouTubePublish, Label: "Publishing to YouTube"},
 }
 
 // PipelineStepStatus exposes the latest observable state for a pipeline step.
@@ -132,6 +135,7 @@ func New(
 	musicSvc *music.Service,
 	renderSvc *render.Service,
 	moderationSvc *moderation.Service,
+	publisherSvc *publisher.Service,
 	cfg Config,
 ) *Worker {
 	if cfg.PollInterval == 0 {
@@ -147,6 +151,7 @@ func New(
 		music:        musicSvc,
 		render:       renderSvc,
 		moderation:   moderationSvc,
+		publisher:    publisherSvc,
 		pollInterval: cfg.PollInterval,
 	}
 }
@@ -220,6 +225,8 @@ func (w *Worker) process(ctx context.Context, j *db.Job) error {
 		err = w.handleRenderThumbnail(ctx, j)
 	case db.JobTypeProjectFinalize:
 		err = w.handleProjectFinalize(ctx, j)
+	case db.JobTypeYouTubePublish:
+		err = w.handleYouTubePublish(ctx, j)
 	default:
 		err = fmt.Errorf("unknown job type: %s", j.JobType)
 	}
@@ -522,7 +529,72 @@ func (w *Worker) handleRenderThumbnail(ctx context.Context, j *db.Job) error {
 }
 
 func (w *Worker) handleProjectFinalize(ctx context.Context, j *db.Job) error {
-	return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageFinalize, "")
+	if err := w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageFinalize, ""); err != nil {
+		return err
+	}
+	if shouldAutoPublishYouTube(j.Payload) {
+		return w.enqueueJob(ctx, j.ProjectID, db.JobTypeYouTubePublish, j.Payload)
+	}
+	return nil
+}
+
+func (w *Worker) handleYouTubePublish(ctx context.Context, j *db.Job) error {
+	if w.publisher == nil || !w.publisher.YouTubeConfigured() {
+		return fmt.Errorf("youtube publisher is not configured")
+	}
+
+	_ = w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusProcessing, db.StageYouTubePublish, "")
+	renders, err := w.db.GetRenders(ctx, j.ProjectID)
+	if err != nil {
+		return err
+	}
+	var finalRender *db.Render
+	for _, renderRecord := range renders {
+		if renderRecord != nil && renderRecord.Kind == "final" && renderRecord.Status == "done" && strings.TrimSpace(renderRecord.StoragePath) != "" {
+			finalRender = renderRecord
+			break
+		}
+	}
+	if finalRender == nil {
+		return fmt.Errorf("final render not found for youtube publish")
+	}
+
+	project, err := w.db.GetProject(ctx, j.ProjectID)
+	if err != nil {
+		return err
+	}
+
+	result, err := w.publisher.PublishToYouTube(ctx, publisher.YouTubePublishRequest{
+		VideoPath: strings.TrimSpace(finalRender.StoragePath),
+		Title:     strings.TrimSpace(project.Topic),
+	})
+	if err != nil {
+		return err
+	}
+
+	metadata, _ := json.Marshal(map[string]any{
+		"video_id":       result.VideoID,
+		"watch_url":      result.WatchURL,
+		"published_at":   result.PublishedAt.Format(time.RFC3339),
+		"publish_method": "auto",
+	})
+	asset := &db.Asset{
+		ID:          uuid.New(),
+		ProjectID:   &j.ProjectID,
+		Type:        "distribution",
+		Source:      "generated",
+		Provider:    "youtube",
+		URL:         result.WatchURL,
+		StoragePath: result.WatchURL,
+		MimeType:    "text/uri-list",
+		Metadata:    metadata,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := w.db.CreateAsset(ctx, asset); err != nil {
+		log.Printf("[worker] warning: failed to persist youtube distribution asset project=%s err=%v", j.ProjectID, err)
+	}
+
+	return w.db.UpdateProjectStatus(ctx, j.ProjectID, db.ProjectStatusDone, db.StageYouTubePublish, "")
 }
 
 func sourceMaterialContextFromAssets(assets []*db.Asset) ([]string, string) {
@@ -731,6 +803,19 @@ func shouldAutoRender(payload []byte) bool {
 	return *request.AutoRender
 }
 
+func shouldAutoPublishYouTube(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	var request struct {
+		AutoPublishYouTube *bool `json:"auto_publish_youtube"`
+	}
+	if err := json.Unmarshal(payload, &request); err != nil || request.AutoPublishYouTube == nil {
+		return false
+	}
+	return *request.AutoPublishYouTube
+}
+
 func stageForJobType(jobType string) string {
 	switch jobType {
 	case db.JobTypeProjectGenerate, db.JobTypeSourceFetch:
@@ -759,6 +844,8 @@ func stageForJobType(jobType string) string {
 		return db.StageRenderThumbnail
 	case db.JobTypeProjectFinalize:
 		return db.StageFinalize
+	case db.JobTypeYouTubePublish:
+		return db.StageYouTubePublish
 	default:
 		return db.StageCreated
 	}

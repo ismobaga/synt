@@ -20,6 +20,8 @@ const (
 	defaultChatterboxModel = "resemble-ai/chatterbox"
 	defaultVibeVoiceModel  = "fishaudio/VibeVoice-Realtime-0.5B"
 	defaultEdgeTTSModel    = "microsoft/edge-tts"
+	defaultVoxCPMCfg       = 2.0
+	defaultVoxCPMSteps     = 10
 )
 
 // KittenClient synthesizes speech through a Kitten TTS compatible HTTP API.
@@ -43,6 +45,20 @@ type SpeechT5Client struct {
 	model      string
 	outputDir  string
 	httpClient *http.Client
+}
+
+// VoxCPMClient synthesizes speech through a VoxCPM-compatible HTTP API.
+type VoxCPMClient struct {
+	endpoint           string
+	outputDir          string
+	defaultControl     string
+	referenceWavPath   string
+	promptText         string
+	cfgValueInput      float64
+	doNormalize        bool
+	denoise            bool
+	inferenceTimesteps int
+	httpClient         *http.Client
 }
 
 // NewKittenClient creates a new Kitten-compatible client.
@@ -83,6 +99,30 @@ func NewSpeechT5Client(baseURL, model, apiKey, outputDir string) *SpeechT5Client
 		apiKey:    strings.TrimSpace(apiKey),
 		model:     model,
 		outputDir: firstNonEmpty(outputDir, defaultTTSOutputDir),
+		httpClient: &http.Client{
+			Timeout: 90 * time.Second,
+		},
+	}
+}
+
+// NewVoxCPMClient creates a new VoxCPM-compatible client.
+func NewVoxCPMClient(endpoint, outputDir, defaultControl, referenceWavPath, promptText string, cfgValue float64, doNormalize, denoise bool, inferenceTimesteps int) *VoxCPMClient {
+	if cfgValue <= 0 {
+		cfgValue = defaultVoxCPMCfg
+	}
+	if inferenceTimesteps <= 0 {
+		inferenceTimesteps = defaultVoxCPMSteps
+	}
+	return &VoxCPMClient{
+		endpoint:           normalizeVoxCPMEndpoint(endpoint),
+		outputDir:          firstNonEmpty(outputDir, defaultTTSOutputDir),
+		defaultControl:     strings.TrimSpace(defaultControl),
+		referenceWavPath:   strings.TrimSpace(referenceWavPath),
+		promptText:         strings.TrimSpace(promptText),
+		cfgValueInput:      cfgValue,
+		doNormalize:        doNormalize,
+		denoise:            denoise,
+		inferenceTimesteps: inferenceTimesteps,
 		httpClient: &http.Client{
 			Timeout: 90 * time.Second,
 		},
@@ -181,6 +221,49 @@ func (c *SpeechT5Client) Synthesize(ctx context.Context, req SynthesizeRequest) 
 		StoragePath: outputPath,
 		DurationSec: duration,
 		VoiceName:   voiceName,
+		Metadata:    meta,
+	}, nil
+}
+
+// Synthesize generates a WAV file using a VoxCPM-compatible API.
+func (c *VoxCPMClient) Synthesize(ctx context.Context, req SynthesizeRequest) (*SynthesizeResult, error) {
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		return nil, fmt.Errorf("text is required")
+	}
+	if c.endpoint == "" {
+		return nil, fmt.Errorf("VoxCPM endpoint is not configured")
+	}
+
+	control := firstNonEmpty(strings.TrimSpace(req.Voice), c.defaultControl)
+	outputPath, err := prepareOutputPath(c.outputDir, "wav")
+	if err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"text_input":               text,
+		"control_instruction":      control,
+		"reference_wav_path_input": c.referenceWavPath,
+		"prompt_text":              c.promptText,
+		"cfg_value_input":          c.cfgValueInput,
+		"do_normalize":             c.doNormalize,
+		"denoise":                  c.denoise,
+		"inference_timesteps":      c.inferenceTimesteps,
+	}
+	if err := synthesizeRemote(ctx, c.httpClient, c.endpoint, "", payload, outputPath); err != nil {
+		return nil, fmt.Errorf("voxcpm synthesize: %w", err)
+	}
+
+	meta, duration := buildMetadataForProvider("voxcpm", text, firstNonEmptyFloat(req.SpeedX, 1.0))
+	meta = enrichMetadata(meta, map[string]any{
+		"endpoint":   c.endpoint,
+		"voice_name": control,
+	})
+	return &SynthesizeResult{
+		StoragePath: outputPath,
+		DurationSec: duration,
+		VoiceName:   control,
 		Metadata:    meta,
 	}, nil
 }
@@ -362,6 +445,18 @@ func normalizeKittenEndpoint(endpoint string) string {
 	return trimmed + "/v1/audio/speech"
 }
 
+func normalizeVoxCPMEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	trimmed := strings.TrimRight(endpoint, "/")
+	if strings.HasSuffix(trimmed, "/generate") {
+		return trimmed
+	}
+	return trimmed + "/generate"
+}
+
 func normalizeSpeechT5Endpoint(baseURL, model string) string {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -416,6 +511,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstNonEmptyFloat(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func enrichMetadata(base []byte, fields map[string]any) []byte {

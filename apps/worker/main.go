@@ -15,6 +15,7 @@ import (
 	"github.com/ismobaga/synt/internal/media"
 	"github.com/ismobaga/synt/internal/moderation"
 	"github.com/ismobaga/synt/internal/music"
+	"github.com/ismobaga/synt/internal/publisher"
 	"github.com/ismobaga/synt/internal/render"
 	"github.com/ismobaga/synt/internal/subtitle"
 	"github.com/ismobaga/synt/internal/voice"
@@ -62,6 +63,7 @@ func main() {
 	musicSvc := music.New(music.NewDefaultLibrary())
 	renderSvc := render.New(database, ffmpegRunner, storageClient)
 	moderationSvc := moderation.New()
+	publisherSvc := publisher.NewFromEnv()
 
 	worker := jobs.New(
 		database,
@@ -72,6 +74,7 @@ func main() {
 		musicSvc,
 		renderSvc,
 		moderationSvc,
+		publisherSvc,
 		jobs.Config{PollInterval: 5 * time.Second},
 	)
 

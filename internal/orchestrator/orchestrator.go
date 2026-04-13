@@ -28,15 +28,16 @@ func New(database *db.DB, q Queue) *Orchestrator {
 }
 
 // TriggerGeneration starts the full generation pipeline for a project.
-func (o *Orchestrator) TriggerGeneration(ctx context.Context, projectID uuid.UUID, autoRender bool) error {
+func (o *Orchestrator) TriggerGeneration(ctx context.Context, projectID uuid.UUID, autoRender, autoPublishYouTube bool) error {
 	if err := o.db.UpdateProjectStatus(ctx, projectID, db.ProjectStatusQueued, db.StageSourceFetch, ""); err != nil {
 		return fmt.Errorf("update project status: %w", err)
 	}
 
 	payload := map[string]any{
-		"project_id":  projectID.String(),
-		"auto_render": autoRender,
-		"source":      "project_generate",
+		"project_id":           projectID.String(),
+		"auto_render":          autoRender,
+		"auto_publish_youtube": autoPublishYouTube,
+		"source":               "project_generate",
 	}
 	data, _ := json.Marshal(payload)
 
@@ -52,7 +53,7 @@ func (o *Orchestrator) RetryProject(ctx context.Context, projectID uuid.UUID) er
 	if project.Status != db.ProjectStatusFailed {
 		return fmt.Errorf("project is not in failed state")
 	}
-	return o.TriggerGeneration(ctx, projectID, true)
+	return o.TriggerGeneration(ctx, projectID, true, false)
 }
 
 // EnqueueJob creates a job record and pushes it to the queue.

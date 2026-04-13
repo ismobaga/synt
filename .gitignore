@@ -31,3 +31,10 @@ Thumbs.db
 # Docker volumes
 postgres_data/
 minio_data/
+
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/

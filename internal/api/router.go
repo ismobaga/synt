@@ -6,13 +6,14 @@ import (
 
 	"github.com/ismobaga/synt/internal/db"
 	"github.com/ismobaga/synt/internal/orchestrator"
+	"github.com/ismobaga/synt/internal/publisher"
 )
 
 // Router sets up and returns the HTTP mux for the API.
-func NewRouter(database *db.DB, orch *orchestrator.Orchestrator) http.Handler {
+func NewRouter(database *db.DB, orch *orchestrator.Orchestrator, pub *publisher.Service) http.Handler {
 	mux := http.NewServeMux()
 
-	projects := NewProjectHandler(database, orch)
+	projects := NewProjectHandler(database, orch, pub)
 	templates := NewTemplateHandler(database)
 	brandKits := NewBrandKitHandler(database)
 
@@ -144,6 +145,16 @@ func NewRouter(database *db.DB, orch *orchestrator.Orchestrator) http.Handler {
 					} else {
 						writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 					}
+				}
+			case "publish":
+				if len(parts) == 3 && parts[2] == "youtube" {
+					if r.Method == http.MethodPost {
+						projects.PublishYouTube(w, r)
+					} else {
+						writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+					}
+				} else {
+					writeError(w, http.StatusNotFound, "not found")
 				}
 			default:
 				writeError(w, http.StatusNotFound, "not found")

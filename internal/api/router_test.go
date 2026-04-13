@@ -12,7 +12,7 @@ import (
 
 // healthHandler is a simple handler for testing route setup
 func TestHealthEndpoint(t *testing.T) {
-	router := api.NewRouter(nil, nil)
+	router := api.NewRouter(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -30,7 +30,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestCreateProjectBadRequest(t *testing.T) {
-	router := api.NewRouter(nil, nil)
+	router := api.NewRouter(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/projects", bytes.NewBufferString("not json"))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -41,7 +41,7 @@ func TestCreateProjectBadRequest(t *testing.T) {
 }
 
 func TestCreateProjectMissingTopic(t *testing.T) {
-	router := api.NewRouter(nil, nil)
+	router := api.NewRouter(nil, nil, nil)
 	body, _ := json.Marshal(map[string]any{"language": "en"})
 	req := httptest.NewRequest(http.MethodPost, "/v1/projects", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -54,7 +54,7 @@ func TestCreateProjectMissingTopic(t *testing.T) {
 }
 
 func TestMethodNotAllowed(t *testing.T) {
-	router := api.NewRouter(nil, nil)
+	router := api.NewRouter(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodDelete, "/v1/templates", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,8 +34,25 @@ func NewFromEnv() (Client, error) {
 	}
 
 	outputDir := envOrDefault("TTS_OUTPUT_DIR", defaultTTSOutputDir)
+	voxcpEndpoint := normalizeVoxCPMEndpoint(os.Getenv("VOXCPM_TTS_BASE_URL"))
 	kittenEndpoint := normalizeKittenEndpoint(os.Getenv("KITTEN_TTS_BASE_URL"))
 	edgeEndpoint := normalizeKittenEndpoint(firstNonEmpty(os.Getenv("EDGE_TTS_BASE_URL"), os.Getenv("KITTEN_TTS_BASE_URL")))
+	voxcpClient := func() (Client, error) {
+		if voxcpEndpoint == "" {
+			return nil, fmt.Errorf("VOXCPM_TTS_BASE_URL is required when TTS_PROVIDER=voxcpm")
+		}
+		return NewVoxCPMClient(
+			voxcpEndpoint,
+			outputDir,
+			os.Getenv("VOXCPM_CONTROL_INSTRUCTION"),
+			os.Getenv("VOXCPM_REFERENCE_WAV_PATH"),
+			os.Getenv("VOXCPM_PROMPT_TEXT"),
+			envFloat("VOXCPM_CFG_VALUE", defaultVoxCPMCfg),
+			envBool("VOXCPM_DO_NORMALIZE", true),
+			envBool("VOXCPM_DENOISE", false),
+			envInt("VOXCPM_INFERENCE_TIMESTEPS", defaultVoxCPMSteps),
+		), nil
+	}
 	kittenClient := func() (Client, error) {
 		if kittenEndpoint == "" {
 			return nil, fmt.Errorf("KITTEN_TTS_BASE_URL is required when TTS_PROVIDER=kitten")
@@ -87,6 +105,9 @@ func NewFromEnv() (Client, error) {
 	case "stub":
 		return NewStubClient(), nil
 	case "auto":
+		if voxcpEndpoint != "" {
+			return voxcpClient()
+		}
 		if kittenEndpoint != "" {
 			return kittenClient()
 		}
@@ -106,6 +127,8 @@ func NewFromEnv() (Client, error) {
 		return NewESpeakClient(cmd, outputDir), nil
 	case "kitten", "kitten-tts", "kitten-mini", "kitten-tts-mini":
 		return kittenClient()
+	case "voxcpm", "voxcpm2":
+		return voxcpClient()
 	case "edge", "edge-tts", "microsoft-edge":
 		return edgeClient()
 	case "chatterbox", "resemble-ai/chatterbox":
@@ -252,4 +275,40 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func envFloat(key string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func envBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }

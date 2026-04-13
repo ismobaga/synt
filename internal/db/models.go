@@ -163,6 +163,7 @@ const (
 	StageRenderFinal        = "render_final"
 	StageRenderThumbnail    = "render_thumbnail"
 	StageFinalize           = "finalize"
+	StageYouTubePublish     = "publish_youtube"
 )
 
 // Job types.
@@ -181,6 +182,7 @@ const (
 	JobTypeRenderFinal      = "render:final"
 	JobTypeRenderThumbnail  = "render:thumbnail"
 	JobTypeProjectFinalize  = "project:finalize"
+	JobTypeYouTubePublish   = "publish:youtube"
 )
 
 // Job statuses.

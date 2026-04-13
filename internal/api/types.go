@@ -25,13 +25,31 @@ type CreateProjectResponse struct {
 
 // GenerateRequest is the request body for POST /v1/projects/:id/generate.
 type GenerateRequest struct {
-	AutoRender bool `json:"auto_render"`
+	AutoRender         bool `json:"auto_render"`
+	AutoPublishYouTube bool `json:"auto_publish_youtube"`
 }
 
 // GenerateResponse is returned when generation is triggered.
 type GenerateResponse struct {
 	Status       string `json:"status"`
 	CurrentStage string `json:"current_stage"`
+}
+
+// PublishYouTubeRequest triggers a YouTube publish for an existing final render.
+type PublishYouTubeRequest struct {
+	Title         string   `json:"title,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	PrivacyStatus string   `json:"privacy_status,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+}
+
+// PublishYouTubeResponse is returned after scheduling or finishing YouTube publish.
+type PublishYouTubeResponse struct {
+	Status      string `json:"status"`
+	ProjectID   string `json:"project_id"`
+	VideoID     string `json:"video_id,omitempty"`
+	WatchURL    string `json:"watch_url,omitempty"`
+	PublishedAt string `json:"published_at,omitempty"`
 }
 
 // ProjectStatusResponse holds project status details.
