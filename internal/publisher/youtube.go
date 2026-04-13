@@ -1,5 +1,4 @@
 package publisher
-package publisher
 
 import (
 	"bytes"
@@ -28,6 +27,9 @@ type Service struct {
 	httpClient       *http.Client
 }
 
+type TokenProvider interface {
+    AccessToken(ctx context.Context) (string, error)
+}
 // YouTubePublishRequest describes a YouTube publish operation.
 type YouTubePublishRequest struct {
 	VideoPath     string
@@ -89,6 +91,14 @@ func (s *Service) PublishToYouTube(ctx context.Context, req YouTubePublishReques
 	}
 	defer file.Close()
 
+	stat, err := file.Stat()
+    if err != nil {
+        return nil, fmt.Errorf("stat video file: %w", err)
+    }
+    if stat.Size() == 0 {
+        return nil, fmt.Errorf("video file is empty")
+    }
+	
 	metadata := map[string]any{
 		"snippet": map[string]any{
 			"title":       firstNonEmpty(strings.TrimSpace(req.Title), "Synt Generated Video"),
